@@ -50,4 +50,9 @@ class Poisson(ExponentialFamily):
         return mu
 
     def deviance(self, y, mu):
-        return np.sum(mu - y - y*np.log(mu))
+        # Need to avoid explicitly calculating y*log(y) when y == 0. 
+        y_log_y = np.empty(shape=y.shape)
+        y_log_y[y == 0] = 0
+        y_non_zero = y[y != 0]
+        y_log_y[y != 0] = y_non_zero*np.log(y_non_zero)
+        return 2*np.sum(mu - y - y*np.log(mu) + y_log_y)
