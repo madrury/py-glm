@@ -25,29 +25,29 @@ class Gaussian(ExponentialFamily):
 
 class Bernoulli(ExponentialFamily):
 
-    def inv_link(nu):
+    def inv_link(self, nu):
         return 1 / (1 + np.exp(nu))
 
-    def d_inv_link(nu, mu):
+    def d_inv_link(self, nu, mu):
         return mu * (1 - mu)
 
-    def variance(mu):
+    def variance(self, mu):
         return mu * (1 - mu)
 
-    def deviance(y, mu):
+    def deviance(self, y, mu):
         return 2*np.sum(y*np.log(mu) + (1 - y)*np.log(1 - mu))
 
 
 class Poission(ExponentialFamily):
 
-    def inv_link(nu):
+    def inv_link(self, nu):
         return np.exp(nu)
 
-    def d_inv_link(nu, mu):
+    def d_inv_link(self, nu, mu):
         return mu
 
-    def variance(mu):
+    def variance(self, mu):
         return mu
 
-    def deviance(y, mu):
+    def deviance(self, y, mu):
         return np.sum(y*np.log(y/mu) - (y - mu))
