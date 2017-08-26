@@ -119,7 +119,7 @@ class GLM:
             penalized_deviance_previous = penalized_deviance
             penalized_deviance = family.penalized_deviance(
                 y, mu, self.alpha, coef)
-            is_converged = self._check_if_converged(
+            is_converged = self._has_converged(
                 penalized_deviance, penalized_deviance_previous, tol)
             n_iter += 1
 
@@ -194,7 +194,7 @@ class GLM:
         ddbeta[diag_idxs, diag_idxs] += self.alpha
         return ddbeta
 
-    def _check_if_converged(self, dev, dev_prev, tol):
+    def _has_converged(self, dev, dev_prev, tol):
         if dev_prev == np.inf:
             return False
         rel_change = np.abs((dev - dev_prev) / dev_prev)
