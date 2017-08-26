@@ -195,5 +195,7 @@ class GLM:
         return ddbeta
 
     def _check_if_converged(self, dev, dev_prev, tol):
+        if dev_prev == np.inf:
+            return False
         rel_change = np.abs((dev - dev_prev) / dev_prev)
         return rel_change < tol
