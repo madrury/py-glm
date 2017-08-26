@@ -60,7 +60,7 @@ class GLM:
         self.coef_ = None 
         self.deviance_ = None
 
-    def fit(self, X, y, warm_start=None, max_iter=100, tol=0.1**5):
+    def fit(self, X, y, warm_start=None, offset=None, max_iter=100, tol=0.1**5):
         """Fit the GLM model to training data.
 
         Fitting the model uses the well known Fisher scoring algorithm.
@@ -80,6 +80,12 @@ class GLM:
             the mean of the target array, and all other parameter estimates
             will be initialized to zero.
 
+        offset: array, shape (n_samples, )
+            Offsets for samples.  If provided, the model fit is
+                E[Y|X] = family.inv_link(np.dot(X, coef) + offset)
+            This is specially useful in models with exposures, as in Poisson
+            regression.
+
         max_iter: positive integer
             The maximum number of iterations for the fitting algorithm.
 
@@ -95,18 +101,20 @@ class GLM:
         """
         if not self._check_intercept(X):
             raise ValueError("First column in matrix X is not an intercept.")
-        if not warm_start:
+        if warm_start is None:
             initial_intercept = np.mean(y)
             warm_start = np.zeros(X.shape[1])
             warm_start[0] = initial_intercept
         coef = warm_start
+        if offset is None:
+            offset = np.zeros(X.shape[0])
 
         family = self.family
         penalized_deviance = np.inf
         is_converged = False
         n_iter = 0
         while n_iter < max_iter and not is_converged:
-            nu = np.dot(X, coef)
+            nu = np.dot(X, coef) + offset
             mu = family.inv_link(nu)
             dmu = family.d_inv_link(nu, mu)
             var = family.variance(mu)
