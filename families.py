@@ -26,7 +26,7 @@ class Gaussian(ExponentialFamily):
 class Bernoulli(ExponentialFamily):
 
     def inv_link(self, nu):
-        return 1 / (1 + np.exp(nu))
+        return 1 / (1 + np.exp(-nu))
 
     def d_inv_link(self, nu, mu):
         return mu * (1 - mu)
