@@ -38,7 +38,7 @@ class Bernoulli(ExponentialFamily):
         return 2*np.sum(y*np.log(mu) + (1 - y)*np.log(1 - mu))
 
 
-class Poission(ExponentialFamily):
+class Poisson(ExponentialFamily):
 
     def inv_link(self, nu):
         return np.exp(nu)
@@ -50,4 +50,4 @@ class Poission(ExponentialFamily):
         return mu
 
     def deviance(self, y, mu):
-        return np.sum(y*np.log(y/mu) - (y - mu))
+        return np.sum(mu - y - y*np.log(mu))
