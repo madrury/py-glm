@@ -2,22 +2,28 @@
 import numpy as np
 
 
-class Gaussian:
+class ExponentialFamily:
 
-    def inv_link(nu):
+    def penalized_deviance(self, y, mu, alpha, coef):
+        return self.deviance(y, mu) + alpha*np.sum(coef[1:]**2)
+
+
+class Gaussian(ExponentialFamily):
+
+    def inv_link(self, nu):
         return nu
 
-    def d_inv_link(nu, mu):
-        return 1
+    def d_inv_link(self, nu, mu):
+        return np.ones(shape=nu.shape)
 
-    def variance(mu):
-        return 1
+    def variance(self, mu):
+        return np.ones(shape=mu.shape)
 
-    def deviance(y, mu):
+    def deviance(self, y, mu):
         return 2*np.sum((y - mu)**2)
 
 
-class Bernoulli:
+class Bernoulli(ExponentialFamily):
 
     def inv_link(nu):
         return 1 / (1 + np.exp(nu))
@@ -32,7 +38,7 @@ class Bernoulli:
         return 2*np.sum(y*np.log(mu) + (1 - y)*np.log(1 - mu))
 
 
-class Poission:
+class Poission(ExponentialFamily):
 
     def inv_link(nu):
         return np.exp(nu)
