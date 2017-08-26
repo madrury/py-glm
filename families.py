@@ -1,4 +1,5 @@
 """Exponential families for GLMs"""
+import numpy as np
 
 
 class Gaussian:
