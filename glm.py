@@ -60,7 +60,8 @@ class GLM:
         self.coef_ = None 
         self.deviance_ = None
 
-    def fit(self, X, y, warm_start=None, offset=None, max_iter=100, tol=0.1**5):
+    def fit(self, X, y, warm_start=None, offset=None, sample_weights=None,
+                        max_iter=100, tol=0.1**5):
         """Fit the GLM model to training data.
 
         Fitting the model uses the well known Fisher scoring algorithm.
@@ -86,6 +87,11 @@ class GLM:
             This is specially useful in models with exposures, as in Poisson
             regression.
 
+        sample_weights: array, shape (n_sample, )
+            Sample weights used in the deviance minimized by the model. If
+            provided, each term in the deviance being minimized is multiplied
+            by its corrosponding weight.
+
         max_iter: positive integer
             The maximum number of iterations for the fitting algorithm.
 
@@ -108,6 +114,8 @@ class GLM:
         coef = warm_start
         if offset is None:
             offset = np.zeros(X.shape[0])
+        if sample_weights is None:
+            sample_weights = np.ones(X.shape[0])
 
         family = self.family
         penalized_deviance = np.inf
@@ -118,8 +126,8 @@ class GLM:
             mu = family.inv_link(nu)
             dmu = family.d_inv_link(nu, mu)
             var = family.variance(mu)
-            dbeta = self._compute_dbeta(X, y, mu, dmu, var)           
-            ddbeta = self._compute_ddbeta(X, dmu, var)
+            dbeta = self._compute_dbeta(X, y, mu, dmu, var, sample_weights)           
+            ddbeta = self._compute_ddbeta(X, dmu, var, sample_weights)
             if self.alpha != 0.0:
                 dbeta = dbeta + self._d_penalty(coef)
                 ddbeta = self._dd_penalty(ddbeta, X)
@@ -185,12 +193,13 @@ class GLM:
     def _check_intercept(self, X):
        return np.all(X[:, 0] == 1.0)
 
-    def _compute_dbeta(self, X, y, mu, dmu, var):
-        working_residuals = (y - mu) * (dmu / var)
+    def _compute_dbeta(self, X, y, mu, dmu, var, sample_weights):
+        working_residuals = sample_weights * (y - mu) * (dmu / var)
         return - np.sum(X * working_residuals.reshape(-1, 1), axis=0)
 
-    def _compute_ddbeta(self, X, dmu, var):
-        return np.dot(X.T, X * (dmu**2 / var).reshape(-1, 1))
+    def _compute_ddbeta(self, X, dmu, var, sample_weights):
+        working_h_weights = (sample_weights * dmu**2 / var).reshape(-1, 1)
+        return np.dot(X.T, X * working_h_weights)
 
     def _d_penalty(self, coef):
         dbeta_penalty = coef.copy()
