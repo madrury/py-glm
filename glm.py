@@ -48,6 +48,13 @@ class GLM:
     deviance_: float
         The final deviance of the fit model on the training data.
 
+    n: integer, positive
+        The number of samples used to fit the model, or the sum of the sample
+        weights.
+
+    p: integer, positive
+        The number of fit parameters in the model.
+
     Notes
     -----
     Instead of supplying a `fit_intercept` argument, we have instead assumed
@@ -59,6 +66,9 @@ class GLM:
         self.alpha = alpha
         self.coef_ = None 
         self.deviance_ = None
+        self.n = None
+        self.p = None
+        self._opt_h_ = None
 
     def fit(self, X, y, warm_start=None, offset=None, sample_weights=None,
                         max_iter=100, tol=0.1**5):
@@ -105,6 +115,8 @@ class GLM:
         self: GLM object
             The fit model.
         """
+        if not self._check_dimensions(X, y):
+            raise ValueError("X and y are not commensurate.")
         if not self._check_intercept(X):
             raise ValueError("First column in matrix X is not an intercept.")
         if warm_start is None:
@@ -114,8 +126,12 @@ class GLM:
         coef = warm_start
         if offset is None:
             offset = np.zeros(X.shape[0])
+        if not self._check_same_length(y, offset):
+            raise ValueError("Offset array and y are not the same length.")
         if sample_weights is None:
             sample_weights = np.ones(X.shape[0])
+        if not self._check_same_length(y, sample_weights):
+            raise ValueError("Sample weights array and y are not the same length.")
 
         family = self.family
         penalized_deviance = np.inf
@@ -128,7 +144,7 @@ class GLM:
             var = family.variance(mu)
             dbeta = self._compute_dbeta(X, y, mu, dmu, var, sample_weights)           
             ddbeta = self._compute_ddbeta(X, dmu, var, sample_weights)
-            if self.alpha != 0.0:
+            if self._is_regularized():
                 dbeta = dbeta + self._d_penalty(coef)
                 ddbeta = self._dd_penalty(ddbeta, X)
             coef = coef - np.linalg.solve(ddbeta, dbeta)
@@ -141,6 +157,9 @@ class GLM:
 
         self.coef_ = coef
         self.deviance_ = family.deviance(y, mu)
+        self.n = np.sum(sample_weights)
+        self.p = X.shape[1]
+        self._opt_h_ = self._compute_ddbeta(X, dmu, var, sample_weights)
         return self
 
     def predict(self, X):
@@ -187,19 +206,50 @@ class GLM:
         """
         return self.family.deviance(y, self.predict(X))
 
+    @property
+    def dispersion_(self):
+        """Return an estimate of the dispersion parameter phi."""
+        if not self._is_fit():
+            raise ValueError("Dispersion parameter can only be estimated for a"
+                             "fit model.")
+        return self.deviance_ / (self.n - self.p)
+
+    @property
+    def information_matrix_(self):
+        if not self._is_fit():
+            raise ValueError("Information matrix can only be estimated for a"
+                             "fit model.")
+        return self._opt_h_
+
+    @property
+    def parameter_covariance_(self):
+        if not self._is_fit():
+            raise ValueError("Parameter covariances can only be estimated for a"
+                             "fit model.")
+        return self.dispersion_ * np.linalg.inv(self.information_matrix_)
+
     def _is_fit(self):
         return self.coef_ is not None
 
+    def _is_regularized(self):
+        return self.alpha > 0.0
+
+    def _check_dimensions(self, X, y):
+        return X.shape[0] == y.shape[0]
+
     def _check_intercept(self, X):
-       return np.all(X[:, 0] == 1.0)
+        return np.all(X[:, 0] == 1.0)
+
+    def _check_same_length(self, v, w):
+        return v.shape[0] == w.shape[0]
 
     def _compute_dbeta(self, X, y, mu, dmu, var, sample_weights):
         working_residuals = sample_weights * (y - mu) * (dmu / var)
-        return - np.sum(X * working_residuals.reshape(-1, 1), axis=0)
+        return - 2*np.sum(X * working_residuals.reshape(-1, 1), axis=0)
 
     def _compute_ddbeta(self, X, dmu, var, sample_weights):
         working_h_weights = (sample_weights * dmu**2 / var).reshape(-1, 1)
-        return np.dot(X.T, X * working_h_weights)
+        return 2*np.dot(X.T, X * working_h_weights)
 
     def _d_penalty(self, coef):
         dbeta_penalty = coef.copy()

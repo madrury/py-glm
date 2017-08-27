@@ -20,7 +20,7 @@ class Gaussian(ExponentialFamily):
         return np.ones(shape=mu.shape)
 
     def deviance(self, y, mu):
-        return 2*np.sum((y - mu)**2)
+        return 2 * np.sum((y - mu)**2)
 
 
 class Bernoulli(ExponentialFamily):
@@ -35,7 +35,7 @@ class Bernoulli(ExponentialFamily):
         return mu * (1 - mu)
 
     def deviance(self, y, mu):
-        return 2*np.sum(y*np.log(mu) + (1 - y)*np.log(1 - mu))
+        return -2 * np.sum(y*np.log(mu) + (1 - y)*np.log(1 - mu))
 
 
 class Poisson(ExponentialFamily):
