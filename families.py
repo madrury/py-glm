@@ -10,6 +10,8 @@ class ExponentialFamily:
 
 class Gaussian(ExponentialFamily):
 
+    has_dispersion = True
+
     def inv_link(self, nu):
         return nu
 
@@ -20,10 +22,12 @@ class Gaussian(ExponentialFamily):
         return np.ones(shape=mu.shape)
 
     def deviance(self, y, mu):
-        return 2 * np.sum((y - mu)**2)
+        return np.sum((y - mu)**2)
 
 
 class Bernoulli(ExponentialFamily):
+
+    has_dispersion = False
 
     def inv_link(self, nu):
         return 1 / (1 + np.exp(-nu))
@@ -39,6 +43,8 @@ class Bernoulli(ExponentialFamily):
 
 
 class Poisson(ExponentialFamily):
+
+    has_dispersion = False
 
     def inv_link(self, nu):
         return np.exp(nu)

@@ -159,7 +159,7 @@ class GLM:
         self.deviance_ = family.deviance(y, mu)
         self.n = np.sum(sample_weights)
         self.p = X.shape[1]
-        self._opt_h_ = self._compute_ddbeta(X, dmu, var, sample_weights)
+        self.information_matrix_ = self._compute_ddbeta(X, dmu, var, sample_weights)
         return self
 
     def predict(self, X):
@@ -212,14 +212,10 @@ class GLM:
         if not self._is_fit():
             raise ValueError("Dispersion parameter can only be estimated for a"
                              "fit model.")
-        return self.deviance_ / (self.n - self.p)
-
-    @property
-    def information_matrix_(self):
-        if not self._is_fit():
-            raise ValueError("Information matrix can only be estimated for a"
-                             "fit model.")
-        return self._opt_h_
+        if self.family.has_dispersion:
+            return self.deviance_ / (self.n - self.p)
+        else:
+            return np.ones(shape=self.deviance_.shape)
 
     @property
     def parameter_covariance_(self):
@@ -245,11 +241,11 @@ class GLM:
 
     def _compute_dbeta(self, X, y, mu, dmu, var, sample_weights):
         working_residuals = sample_weights * (y - mu) * (dmu / var)
-        return - 2*np.sum(X * working_residuals.reshape(-1, 1), axis=0)
+        return - np.sum(X * working_residuals.reshape(-1, 1), axis=0)
 
     def _compute_ddbeta(self, X, dmu, var, sample_weights):
         working_h_weights = (sample_weights * dmu**2 / var).reshape(-1, 1)
-        return 2*np.dot(X.T, X * working_h_weights)
+        return np.dot(X.T, X * working_h_weights)
 
     def _d_penalty(self, coef):
         dbeta_penalty = coef.copy()
