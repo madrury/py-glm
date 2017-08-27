@@ -22,7 +22,7 @@ class Gaussian(ExponentialFamily):
         return np.ones(shape=mu.shape)
 
     def deviance(self, y, mu):
-        return np.sum((y - mu)**2)
+        return 2 * np.sum((y - mu)**2)
 
 
 class Bernoulli(ExponentialFamily):
