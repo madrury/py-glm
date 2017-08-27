@@ -1,15 +1,59 @@
 """Exponential families for GLMs"""
+from abc import ABCMeta
 import numpy as np
 
 
-class ExponentialFamily:
+class ExponentialFamily(metaclass=ABCMeta):
+    """An ExponentialFamily must implement at least four methods and define one
+    attribute.
 
+    Methods
+    -------
+    inv_link:
+        The inverse link function.
+
+    d_inv_link:
+        The derivative of the inverse link function.
+
+    variance:
+        The variance funtion linking the mean to the variance of the
+        distribution.
+
+    deviance:
+        The deviance of the family. Used as a measure of model fit.
+    """
+    @abstractmethod
+    def inv_link(self, nu):
+        pass
+
+    @abstractmethod
+    def d_inv_link(self, nu, mu):
+        pass
+
+    @abstractmethod
+    def variance(self, mu):
+        pass
+
+    @abstractmethod
+    def deviance(self, y, mu):
+        pass
+
+
+class ExponentialFamilyMixin:
+    """Implementations of methods common to all ExponentialFamilies."""
     def penalized_deviance(self, y, mu, alpha, coef):
         return self.deviance(y, mu) + alpha*np.sum(coef[1:]**2)
 
 
 class Gaussian(ExponentialFamily):
+    """A Gaussian exponential family, used to fit a classical linear model.
 
+    The GLM fit with this family has the following structure equation:
+
+        y | X ~ Gaussian(mu = X beta, sigma = sigma)
+
+    Here, sigma is a nuisance parameter.
+    """
     has_dispersion = True
 
     def inv_link(self, nu):
@@ -26,7 +70,12 @@ class Gaussian(ExponentialFamily):
 
 
 class Bernoulli(ExponentialFamily):
+    """A Bernoulli exponential family, used to fit a classical logistic model.
 
+    The GLM fit with this family has the following structure equation:
+
+        y | X ~ Bernoulli(p = X beta)
+    """
     has_dispersion = False
 
     def inv_link(self, nu):
@@ -43,7 +92,12 @@ class Bernoulli(ExponentialFamily):
 
 
 class Poisson(ExponentialFamily):
+    """A Poisson exponential family, used to fit a Poisson regression.
 
+    The GLM fit with this family has the following structure equation:
+
+        y | X ~ Poisson(mu = exp(X beta))
+    """
     has_dispersion = False
 
     def inv_link(self, nu):
