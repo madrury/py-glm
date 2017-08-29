@@ -1,5 +1,5 @@
 """Exponential families for GLMs"""
-from abc import ABCMeta
+from abc import ABCMeta, abstractmethod
 import numpy as np
 
 
@@ -45,7 +45,7 @@ class ExponentialFamilyMixin:
         return self.deviance(y, mu) + alpha*np.sum(coef[1:]**2)
 
 
-class Gaussian(ExponentialFamily):
+class Gaussian(ExponentialFamily, ExponentialFamilyMixin):
     """A Gaussian exponential family, used to fit a classical linear model.
 
     The GLM fit with this family has the following structure equation:
@@ -69,7 +69,7 @@ class Gaussian(ExponentialFamily):
         return 2 * np.sum((y - mu)**2)
 
 
-class Bernoulli(ExponentialFamily):
+class Bernoulli(ExponentialFamily, ExponentialFamilyMixin):
     """A Bernoulli exponential family, used to fit a classical logistic model.
 
     The GLM fit with this family has the following structure equation:
@@ -91,7 +91,7 @@ class Bernoulli(ExponentialFamily):
         return -2 * np.sum(y*np.log(mu) + (1 - y)*np.log(1 - mu))
 
 
-class Poisson(ExponentialFamily):
+class Poisson(ExponentialFamily, ExponentialFamilyMixin):
     """A Poisson exponential family, used to fit a Poisson regression.
 
     The GLM fit with this family has the following structure equation:
