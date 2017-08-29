@@ -222,11 +222,15 @@ class GLM:
             return np.ones(shape=self.deviance_.shape)
 
     @property
-    def parameter_covariance_(self):
+    def coef_covariance_matrix_(self):
         if not self._is_fit():
             raise ValueError("Parameter covariances can only be estimated for a"
                              "fit model.")
         return self.dispersion_ * np.linalg.inv(self.information_matrix_)
+
+    @property
+    def coef_standard_error_(self):
+        return np.sqrt(np.diag(self.coef_covariance_matrix_))
 
     def _is_fit(self):
         return self.coef_ is not None
