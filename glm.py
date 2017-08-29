@@ -48,6 +48,10 @@ class GLM:
     deviance_: float
         The final deviance of the fit model on the training data.
 
+    information_matrix_: array, shape (n_features, n_features)
+        The estimated information matrix. This information matrix is evaluated
+        at the fit parameters.
+
     n: integer, positive
         The number of samples used to fit the model, or the sum of the sample
         weights.
@@ -68,7 +72,7 @@ class GLM:
         self.deviance_ = None
         self.n = None
         self.p = None
-        self._opt_h_ = None
+        self.information_matrix_ = None
 
     def fit(self, X, y, warm_start=None, offset=None, sample_weights=None,
                         max_iter=100, tol=0.1**5):
