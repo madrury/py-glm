@@ -68,6 +68,9 @@ class Gaussian(ExponentialFamily, ExponentialFamilyMixin):
     def deviance(self, y, mu):
         return 2 * np.sum((y - mu)**2)
 
+    def sample(self, mus, dispersion):
+        return np.random.normal(mus, np.sqrt(dispersion))
+
 
 class Bernoulli(ExponentialFamily, ExponentialFamilyMixin):
     """A Bernoulli exponential family, used to fit a classical logistic model.

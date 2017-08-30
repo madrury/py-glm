@@ -166,7 +166,7 @@ class GLM:
         self.information_matrix_ = self._compute_ddbeta(X, dmu, var, sample_weights)
         return self
 
-    def predict(self, X):
+    def predict(self, X, offset=None):
         """Return predictions from a fit model.
 
         Predictions are computed using the inverse link function in the family
@@ -182,6 +182,9 @@ class GLM:
         X: array, shape (n_samples, n_features)
             Data set.
 
+        offset: array, shape (n_samples, )
+            Offsets to add on the linear scale when making predictions.
+
         Returns
         -------
         preds: array, shape (n_samples, )
@@ -190,7 +193,10 @@ class GLM:
         if not self._is_fit():
             raise ValueError(
                 "Model is not fit, and cannot be used to make predictions.")
-        return self.family.inv_link(np.dot(X, self.coef_))
+        if offset is None:
+            return self.family.inv_link(np.dot(X, self.coef_))
+        else:
+            return self.family.inv_link(np.dot(X, self.coef_) + offset)
 
     def score(self, X, y):
         """Return the deviance of a fit model on a given dataset.
