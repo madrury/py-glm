@@ -232,6 +232,9 @@ class GLM:
     def coef_standard_error_(self):
         return np.sqrt(np.diag(self.coef_covariance_matrix_))
 
+    def clone(self):
+        return self.__class__(self.family, self.alpha)
+
     def _is_fit(self):
         return self.coef_ is not None
 
