@@ -93,6 +93,9 @@ class Bernoulli(ExponentialFamily, ExponentialFamilyMixin):
     def deviance(self, y, mu):
         return -2 * np.sum(y*np.log(mu) + (1 - y)*np.log(1 - mu))
 
+    def sample(self, mus, dispersion):
+        return np.random.binomial(1, mus)
+
 
 class Poisson(ExponentialFamily, ExponentialFamilyMixin):
     """A Poisson exponential family, used to fit a Poisson regression.
@@ -119,3 +122,6 @@ class Poisson(ExponentialFamily, ExponentialFamilyMixin):
         y_non_zero = y[y != 0]
         y_log_y[y != 0] = y_non_zero*np.log(y_non_zero)
         return 2*np.sum(mu - y - y*np.log(mu) + y_log_y)
+
+    def sample(self, mus, dispersion):
+        return np.random.poisson(mus)
