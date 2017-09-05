@@ -21,6 +21,9 @@ class ExponentialFamily(metaclass=ABCMeta):
 
     deviance:
         The deviance of the family. Used as a measure of model fit.
+
+    sample:
+        A sampler from the conditional distribution of the reponse.
     """
     @abstractmethod
     def inv_link(self, nu):
@@ -36,6 +39,10 @@ class ExponentialFamily(metaclass=ABCMeta):
 
     @abstractmethod
     def deviance(self, y, mu):
+        pass
+
+    @abstractmethod
+    def sample(self, mus, dispersion):
         pass
 
 
