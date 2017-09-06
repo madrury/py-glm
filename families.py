@@ -132,3 +132,24 @@ class Poisson(ExponentialFamily, ExponentialFamilyMixin):
 
     def sample(self, mus, dispersion):
         return np.random.poisson(mus)
+
+
+class Gamma(ExponentialFamily, ExponentialFamilyMixin):
+
+    has_dispersion = True
+
+    def inv_link(self, nu):
+        return np.exp(nu)
+
+    def d_inv_link(self, nu, mu):
+        return mu
+
+    def variance(self, mu):
+        return mu * mu
+
+    def deviance(self, y, mu):
+        return 2 * np.sum((y - mu) / mu - np.log(y / mu))
+
+    def sample(self, mu, dispersion):
+        shape, scale = dispersion, mu / dispersion
+        return np.random.gamma(shape=shape, scale=scale)
