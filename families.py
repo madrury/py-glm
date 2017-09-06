@@ -104,14 +104,19 @@ class Bernoulli(ExponentialFamily, ExponentialFamilyMixin):
         return np.random.binomial(1, mus)
 
 
-class Poisson(ExponentialFamily, ExponentialFamilyMixin):
-    """A Poisson exponential family, used to fit a Poisson regression.
+class QuasiPoisson(ExponentialFamily, ExponentialFamilyMixin):
+    """A QuasiPoisson exponential family, used to fit a possibly overdispersed
+    Poisson regression.
 
     The GLM fit with this family has the following structure equation:
 
         y | X ~ Poisson(mu = exp(X beta))
+
+    The parameter esimtates of this model are the same as a Poisson model, but
+    a dispersion parameter is estimated, allowing for possibly larger standards
+    errors when overdispersion is present.
     """
-    has_dispersion = False
+    has_dispersion = True
 
     def inv_link(self, nu):
         return np.exp(nu)
@@ -134,6 +139,21 @@ class Poisson(ExponentialFamily, ExponentialFamilyMixin):
         return np.random.poisson(mus)
 
 
+class Poisson(QuasiPoisson):
+    """A QuasiPoisson exponential family, used to fit a possibly overdispersed
+    Poisson regression.
+
+    The GLM fit with this family has the following structure equation:
+
+        y | X ~ Poisson(mu = exp(X beta))
+
+    The Poisson model does not estimate a dispersion parameter; if
+    overdispersion is present, the standard errors estimated in this model may
+    be too small.  If this is the case, consider fitting a QuasiPoisson model.
+    """
+    has_dispersion = False
+
+
 class Gamma(ExponentialFamily, ExponentialFamilyMixin):
     """A Gamma exponential family.
 
@@ -142,7 +162,6 @@ class Gamma(ExponentialFamily, ExponentialFamilyMixin):
         y | X ~ Gamma(shape = dispersion, scale = exp(X beta) / dispersion)
 
     Here, sigma is a nuisance parameter.
-
 
     Note: In this family we use the logarithmic link function, instead of the
     reciporical link function.  Although the reciporical is the canonical link,
