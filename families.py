@@ -73,7 +73,7 @@ class Gaussian(ExponentialFamily, ExponentialFamilyMixin):
         return np.ones(shape=mu.shape)
 
     def deviance(self, y, mu):
-        return 2 * np.sum((y - mu)**2)
+        return np.sum((y - mu)**2)
 
     def sample(self, mus, dispersion):
         return np.random.normal(mus, np.sqrt(dispersion))

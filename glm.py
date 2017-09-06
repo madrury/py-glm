@@ -223,7 +223,7 @@ class GLM:
             raise ValueError("Dispersion parameter can only be estimated for a"
                              "fit model.")
         if self.family.has_dispersion:
-            return 0.5 * self.deviance_ / (self.n - self.p)
+            return self.deviance_ / (self.n - self.p)
         else:
             return np.ones(shape=self.deviance_.shape)
 
