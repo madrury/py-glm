@@ -57,7 +57,7 @@ class Gaussian(ExponentialFamily, ExponentialFamilyMixin):
 
     The GLM fit with this family has the following structure equation:
 
-        y | X ~ Gaussian(mu = X beta, sigma = sigma)
+        y | X ~ Gaussian(mu = X beta, sigma = dispersion)
 
     Here, sigma is a nuisance parameter.
     """
@@ -135,7 +135,19 @@ class Poisson(ExponentialFamily, ExponentialFamilyMixin):
 
 
 class Gamma(ExponentialFamily, ExponentialFamilyMixin):
+    """A Gamma exponential family.
 
+    The GLM fit with this family has the following structure equation:
+
+        y | X ~ Gamma(shape = dispersion, scale = exp(X beta) / dispersion)
+
+    Here, sigma is a nuisance parameter.
+
+
+    Note: In this family we use the logarithmic link function, instead of the
+    reciporical link function.  Although the reciporical is the canonical link,
+    the logarithmic link is more commonly used in Gamma regression.
+    """
     has_dispersion = True
 
     def inv_link(self, nu):
@@ -153,3 +165,16 @@ class Gamma(ExponentialFamily, ExponentialFamilyMixin):
     def sample(self, mu, dispersion):
         shape, scale = dispersion, mu / dispersion
         return np.random.gamma(shape=shape, scale=scale)
+
+
+class Exponential(Gamma):
+    """An Exponential distribution exponential family.
+
+    The GLM fit with this family has the following structure equation:
+
+        y | X = Exponentiatl(scale = exp(X beta))
+
+    The only difference between this family and the Gamma family is that the
+    dispersion is fixed at 1.
+    """
+    has_dispersion = False
