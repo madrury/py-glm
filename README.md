@@ -21,7 +21,7 @@ exponential_model = GLM(family=Exponential())
 Models with dispersion parameters are also supported.  The dispersion parameters
 in these models is estimated using the deviance.
 
-```
+```python
 from families import QuasiPoisson, Gamma
 
 quasi_poisson_model = GLM(family=QuasiPoisson())
@@ -43,7 +43,7 @@ poisson_nmodel.fit(X, y_poisson, offset=np.log(expos))
 
 Predictions are also made in sklearn style:
 
-```
+```python
 logistic_model.predict(X)
 ```
 
@@ -60,7 +60,7 @@ model.coef_standard_error_
 
 Resampling methods are also supported: the parametric and non-parametric bootstraps:
 
-```
+```python
 from simulation import Simulation
 
 sim = Simulation(logistic_model)
