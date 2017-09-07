@@ -25,7 +25,7 @@ in these models is estimated using the deviance.
 from families import QuasiPoisson, Gamma
 
 quasi_poisson_model = GLM(family=QuasiPoisson())
-gamma_model = GLM(gamily=Gamma())
+gamma_model = GLM(family=Gamma())
 ```
 
 Fitting a model proceeds in `sklearn` style, and uses the Fisher scoring algorithm:
@@ -55,7 +55,7 @@ Once the model is fit, parameter estimates and parameter covariance estimates ar
 ```python
 logistic_model.coef_
 logistic_model.coef_covariance_matrix_
-model.coef_standard_error_
+logistic_model.coef_standard_error_
 ```
 
 Resampling methods are also supported: the parametric and non-parametric bootstraps:
