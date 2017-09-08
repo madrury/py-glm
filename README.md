@@ -75,3 +75,7 @@ Ridge regression is supported for each model (note, the regularization parameter
 ```python
 logistic_model.fit(X, y_logistic, alpha=1.0)
 ```
+
+## References
+
+* Marlene Müller (2004). [Generalized Linear Models](http://www.marlenemueller.de/publications/HandbookCS.pdf).
