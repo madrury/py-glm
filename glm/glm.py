@@ -1,4 +1,7 @@
 import numpy as np
+from .utils import (check_commensurate, check_intercept, check_offset,
+                   check_sample_weights, has_converged)
+
 
 class GLM:
     """A generalized linear model.
@@ -119,10 +122,8 @@ class GLM:
         self: GLM object
             The fit model.
         """
-        if not self._check_dimensions(X, y):
-            raise ValueError("X and y are not commensurate.")
-        if not self._check_intercept(X):
-            raise ValueError("First column in matrix X is not an intercept.")
+        check_commensurate(X, y)
+        check_intercept(X)
         if warm_start is None:
             initial_intercept = np.mean(y)
             warm_start = np.zeros(X.shape[1])
@@ -130,12 +131,10 @@ class GLM:
         coef = warm_start
         if offset is None:
             offset = np.zeros(X.shape[0])
-        if not self._check_same_length(y, offset):
-            raise ValueError("Offset array and y are not the same length.")
+        check_offset(y, offset)
         if sample_weights is None:
             sample_weights = np.ones(X.shape[0])
-        if not self._check_same_length(y, sample_weights):
-            raise ValueError("Sample weights array and y are not the same length.")
+        check_sample_weights(y, sample_weights)
 
         family = self.family
         penalized_deviance = np.inf
@@ -155,7 +154,7 @@ class GLM:
             penalized_deviance_previous = penalized_deviance
             penalized_deviance = family.penalized_deviance(
                 y, mu, self.alpha, coef)
-            is_converged = self._has_converged(
+            is_converged = has_converged(
                 penalized_deviance, penalized_deviance_previous, tol)
             n_iter += 1
 
@@ -247,15 +246,6 @@ class GLM:
     def _is_regularized(self):
         return self.alpha > 0.0
 
-    def _check_dimensions(self, X, y):
-        return X.shape[0] == y.shape[0]
-
-    def _check_intercept(self, X):
-        return np.all(X[:, 0] == 1.0)
-
-    def _check_same_length(self, v, w):
-        return v.shape[0] == w.shape[0]
-
     def _compute_dbeta(self, X, y, mu, dmu, var, sample_weights):
         working_residuals = sample_weights * (y - mu) * (dmu / var)
         return - np.sum(X * working_residuals.reshape(-1, 1), axis=0)
@@ -274,8 +264,3 @@ class GLM:
         ddbeta[diag_idxs, diag_idxs] += self.alpha
         return ddbeta
 
-    def _has_converged(self, dev, dev_prev, tol):
-        if dev_prev == np.inf:
-            return False
-        rel_change = np.abs((dev - dev_prev) / dev_prev)
-        return rel_change < tol
