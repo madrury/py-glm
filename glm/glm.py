@@ -8,7 +8,7 @@ class GLM:
     *link function* G and a family of *conditional distributions* dist, with
     the model specification given by
 
-        y | X ~ dist(theta = G(X * beta)
+        y | X ~ dist(theta = G(X * beta))
 
     Here beta are the parameters fit in the model, with X * beta a matrix
     multiplication just like in linear regression.  Above, theta is a
