@@ -1,10 +1,12 @@
 import numpy as np
 from itertools import cycle
-from .utils import soft_threshold
+from utils import (check_commensurate, check_intercept, check_offset,
+                   check_sample_weights, has_converged, soft_threshold)
+
 
 class ElasticNet:
 
-    def __init__(self, lam, alpha, max_iter=100, tol=0.1**5):
+    def __init__(self, lam, alpha, max_iter=10, tol=0.1**5):
         self.lam = lam
         self.alpha = alpha
         self.max_iter = max_iter
@@ -17,7 +19,6 @@ class ElasticNet:
                         xy_dots=None, xx_dots=None):
         """Fit an elastic net with coordinate descent."""
         check_commensurate(X, y)
-        check_intercept(X)
         if sample_weights is None:
             sample_weights = np.ones(X.shape[0])
         check_sample_weights(y, sample_weights)
@@ -29,9 +30,8 @@ class ElasticNet:
         if active_coefs is None:
             active_coefs = np.zeros(n_coef) 
         n_active_coefs = np.sum(active_coefs != 0)
-        if active_coef_idxs is not None:
-            active_coef_idxs = np.zeros(n_coef)
-            active_coef_set = set(active_set)
+        if active_coef_set is None:
+            active_coef_set = set()
         if j_to_active_map is None:
             j_to_active_map = {j: n_coef - 1 for j in range(n_coef)}
         if xy_dots is None:
@@ -44,11 +44,17 @@ class ElasticNet:
         loss = np.inf
         prior_loss = None
         n_iter = 0
+        is_converged = False
         while n_iter < self.max_iter and not is_converged:
-            for j in cycle(range(n_coef)):
+            for j in range(n_coef):
+                print("loop coef: ", j)
+                print("coef: ", j)
+                print("n active coefs: ", n_active_coefs)
+                print("active coefs: ", active_coefs)
                 xj_dot_residual = (
                     xy_dots[j] 
-                    - np.sum(xy_dots[j, :n_active_coefs] * active_coefs[:n_active_coefs]))
+                    - self.intercept_
+                    - np.sum(xx_dots[j, :n_active_coefs] * active_coefs[:n_active_coefs]))
                 partial_residual = (
                     (1 / n_samples) * xj_dot_residual 
                     + active_coefs[j_to_active_map[j]])
@@ -60,4 +66,4 @@ class ElasticNet:
                     j_to_active_map[j] = n_active_coefs - 1
                     active_coefs[n_active_coefs - 1] = new_coef
                     active_coef_set.add(j)
-                print(j, new_coef)
+            n_iter += 1

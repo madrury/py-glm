@@ -30,3 +30,9 @@ def has_converged(loss, loss_prev, tol):
         return False
     rel_change = np.abs((loss - loss_prev) / loss_prev)
     return rel_change < tol
+
+def soft_threshold(z, gamma):
+    abs_z = np.abs(z)
+    if gamma >= abs_z:
+        return 0.0
+    return np.sign(z) * (abs_z - gamma)
