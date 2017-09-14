@@ -15,7 +15,7 @@ class ElasticNet:
         self.coef_ = None
 
     def fit(self, X, y, offset=None, sample_weights=None, 
-                        active_coef_idxs=None, j_to_active_map=None, active_coefs=None,
+                        active_coef_list=None, j_to_active_map=None, active_coefs=None,
                         xy_dots=None, xx_dots=None):
         """Fit an elastic net with coordinate descent."""
         check_commensurate(X, y)
@@ -30,8 +30,9 @@ class ElasticNet:
         if active_coefs is None:
             active_coefs = np.zeros(n_coef) 
         n_active_coefs = np.sum(active_coefs != 0)
-        if active_coef_set is None:
-            active_coef_set = set()
+        if active_coef_list is None:
+            active_coef_list = []
+            active_coef_set = set(active_coef_list)
         if j_to_active_map is None:
             j_to_active_map = {j: n_coef - 1 for j in range(n_coef)}
         if xy_dots is None:
@@ -47,10 +48,12 @@ class ElasticNet:
         is_converged = False
         while n_iter < self.max_iter and not is_converged:
             for j in range(n_coef):
+                print()
                 print("loop coef: ", j)
                 print("coef: ", j)
-                print("n active coefs: ", n_active_coefs)
+                print("active coef idxs: ", active_coef_list)
                 print("active coefs: ", active_coefs)
+                print("xx_dots:\n", xx_dots)
                 xj_dot_residual = (
                     xy_dots[j] 
                     - self.intercept_
@@ -64,6 +67,12 @@ class ElasticNet:
                 elif new_coef != 0.0:
                     n_active_coefs += 1
                     j_to_active_map[j] = n_active_coefs - 1
+                    xx_dots[j, n_active_coefs - 1] = np.dot(X[:, j], X[:, j])
+                    for idx, active_coef_idx in enumerate(active_coef_list):
+                        dprod = np.dot(X[:, j], X[:, active_coef_idx])
+                        xx_dots[j, idx] = dprod
+                        xx_dots[idx, n_active_coefs - 1] = dprod
                     active_coefs[n_active_coefs - 1] = new_coef
+                    active_coef_list.append(j)
                     active_coef_set.add(j)
             n_iter += 1
