@@ -65,17 +65,13 @@ class ElasticNet:
                 elif new_coef != 0.0:
                     n_active_coefs += 1
                     j_to_active_map[j] = n_active_coefs - 1
-                    xx_dots[j, n_active_coefs - 1] = np.dot(X[:, j], X[:, j])
-                    for idx, active_coef_idx in enumerate(active_coef_list):
-                        dprod = np.dot(X[:, j], X[:, active_coef_idx])
-                        xx_dots[j, idx] = dprod
-                        xx_dots[idx, n_active_coefs - 1] = dprod
                     active_coefs[n_active_coefs - 1] = new_coef
                     active_coef_list.append(j)
                     active_coef_set.add(j)
+                    xx_dots = self._update_xx_dots(xx_dots, X, j, n_active_coefs)
             is_converged = self._check_converged(active_coefs, previous_coefs)
             n_iter += 1
-        
+ 
         self._active_coef_list = active_coef_list
         self._j_to_active_map = j_to_active_map
         self._active_coefs = active_coefs
@@ -86,17 +82,26 @@ class ElasticNet:
     def _compute_partial_residual(self, xy_dots, xx_dots, j, active_coefs, 
                                         j_to_active_map, n_samples,
                                         n_active_coefs,):
+        partial_prediction = (
+            xx_dots[j, :n_active_coefs] * active_coefs[:n_active_coefs])
         xj_dot_residual = (
-            xy_dots[j] 
-            - self.intercept_
-            - np.sum(xx_dots[j, :n_active_coefs] * active_coefs[:n_active_coefs]))
+            xy_dots[j] - self.intercept_ - np.sum(partial_prediction)
         partial_residual = (
             (1 / n_samples) * xj_dot_residual
             + active_coefs[j_to_active_map[j]])
         return partial_residual
 
-    def _check_converged(self, active_coefs, previous_coefs):
-        return np.sum(np.abs((active_coefs - previous_coefs))) < self.tol
+    def _update_xx_dots(self, xx_dots, X, j, n_active_coefs):
+        xx_dots[j, n_active_coefs - 1] = np.dot(X[:, j], X[:, j])
+        for idx, active_coef_idx in enumerate(active_coef_list):
+            dprod = np.dot(X[:, j], X[:, active_coef_idx])
+            xx_dots[j, idx] = dprod
+            xx_dots[idx, n_active_coefs - 1] = dprod
+        return xx_dots
+
+    def _check_converged(self, active_coefs, previous_coefs, n_coef):
+        relative_change = np.sum(np.abs((active_coefs - previous_coefs)))
+        return relative_change < n_coef * self.tol
 
     def _print_state(self, j, active_coef_list, active_coefs, xx_dots):
         print()
