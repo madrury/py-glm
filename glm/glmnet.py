@@ -16,14 +16,16 @@ class ElasticNet:
 
     def fit(self, X, y, offset=None, sample_weights=None, 
                         active_coef_list=None, j_to_active_map=None, active_coefs=None,
-                        xy_dots=None, xx_dots=None):
+                        xy_dots=None, xx_dots=None,
+                        print_state=False):
         """Fit an elastic net with coordinate descent."""
+        # Check inputs for validity.
         check_commensurate(X, y)
         if sample_weights is None:
             sample_weights = np.ones(X.shape[0])
         check_sample_weights(y, sample_weights)
 
-        # We are choosing data structures here for efficiency.
+        # Set up initial data structures if needed.
         n_samples = X.shape[0]
         n_coef = X.shape[1]
         self.intercept_ = np.mean(y)
@@ -42,26 +44,22 @@ class ElasticNet:
         lambda_alpha = self.lam * self.alpha
         update_denom = 1 + self.lam * (1 - self.alpha)
 
+        # Fit the model by coordinatewise descent.
         loss = np.inf
         prior_loss = None
         n_iter = 0
         is_converged = False
         while n_iter < self.max_iter and not is_converged:
+            previous_coefs = active_coefs
             for j in range(n_coef):
-                print()
-                print("loop coef: ", j)
-                print("coef: ", j)
-                print("active coef idxs: ", active_coef_list)
-                print("active coefs: ", active_coefs)
-                print("xx_dots:\n", xx_dots)
-                xj_dot_residual = (
-                    xy_dots[j] 
-                    - self.intercept_
-                    - np.sum(xx_dots[j, :n_active_coefs] * active_coefs[:n_active_coefs]))
-                partial_residual = (
-                    (1 / n_samples) * xj_dot_residual 
-                    + active_coefs[j_to_active_map[j]])
-                new_coef = soft_threshold(partial_residual, lambda_alpha) / update_denom
+                if print_state:
+                    self._print_state(j, active_coef_list, active_coefs, xx_dots)
+                partial_residual = self._compute_partial_residual(
+                    xy_dots, xx_dots, j, active_coefs, 
+                    j_to_active_map, n_samples,
+                    n_active_coefs)
+                new_coef = (
+                    soft_threshold(partial_residual, lambda_alpha) / update_denom)
                 if j in active_coef_set:
                     active_coefs[j_to_active_map[j]] = new_coef
                 elif new_coef != 0.0:
@@ -75,4 +73,34 @@ class ElasticNet:
                     active_coefs[n_active_coefs - 1] = new_coef
                     active_coef_list.append(j)
                     active_coef_set.add(j)
+            is_converged = self._check_converged(active_coefs, previous_coefs)
             n_iter += 1
+        
+        self._active_coef_list = active_coef_list
+        self._j_to_active_map = j_to_active_map
+        self._active_coefs = active_coefs
+        self._xx_dots = xx_dots
+        self._xy_dots = xy_dots
+        return self
+
+    def _compute_partial_residual(self, xy_dots, xx_dots, j, active_coefs, 
+                                        j_to_active_map, n_samples,
+                                        n_active_coefs,):
+        xj_dot_residual = (
+            xy_dots[j] 
+            - self.intercept_
+            - np.sum(xx_dots[j, :n_active_coefs] * active_coefs[:n_active_coefs]))
+        partial_residual = (
+            (1 / n_samples) * xj_dot_residual
+            + active_coefs[j_to_active_map[j]])
+        return partial_residual
+
+    def _check_converged(self, active_coefs, previous_coefs):
+        return np.sum(np.abs((active_coefs - previous_coefs))) < self.tol
+
+    def _print_state(self, j, active_coef_list, active_coefs, xx_dots):
+        print()
+        print("loop coef: ", j)
+        print("active coef idxs: ", active_coef_list)
+        print("active coefs: ", active_coefs)
+        print("xx_dots:\n", xx_dots)
