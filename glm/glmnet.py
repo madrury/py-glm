@@ -82,6 +82,8 @@ class ElasticNet:
         self.alpha = alpha
         self.max_iter = max_iter
         self.tol = tol
+        self.n = None
+        self.p = None
         self.intercept_ = None
         self._active_coefs = None
         self._active_coef_idx_list = None
@@ -171,6 +173,8 @@ class ElasticNet:
                 active_coefs, previous_coefs, n_coef)
             n_iter += 1
  
+        self.n = n_samples
+        self.p = n_coef
         self._active_coef_idx_list = active_coef_idx_list
         self._j_to_active_map = j_to_active_map
         self._active_coefs = active_coefs
@@ -202,6 +206,13 @@ class ElasticNet:
     def _check_converged(self, active_coefs, previous_coefs, n_coef):
         relative_change = np.sum(np.abs((active_coefs - previous_coefs)))
         return relative_change < n_coef * self.tol
+
+    @property
+    def coef_(self):
+        coef = np.zeros(self.p)
+        for i, col_idx in enumerate(self._active_coef_idx_list):
+            coef[col_idx] = self._active_coefs[i]
+        return coef
 
     def _print_state(self, j, active_coef_idx_list, active_coefs, xx_dots):
         print()
