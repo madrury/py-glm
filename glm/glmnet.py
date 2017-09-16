@@ -93,7 +93,31 @@ class ElasticNet:
                         active_coef_idx_list=None, j_to_active_map=None, active_coefs=None,
                         xy_dots=None, xx_dots=None,
                         print_state=False):
-        """Fit an elastic net with coordinate descent."""
+        """Fit an elastic net with coordinate descent.
+        Parameters
+        ----------
+        X: array, shape (n_samples, n_features)
+            Training data.
+
+        y: array, shape (n_samples, )
+            Target values.
+
+        offset: array, shape (n_samples, )
+            Offsets for samples.  If provided, the model fit is
+                E[Y|X] = np.dot(X, coef) + offset
+
+        sample_weights: array, shape (n_sample, )
+            Sample weights used in the deviance minimized by the model. If
+            provided, each term in the deviance being minimized is multiplied
+            by its corrosponding weight.
+
+        ...
+
+        Returns
+        -------
+        self: ElasticNet object
+            The fit model.
+        """
         # Check inputs for validity.
         check_commensurate(X, y)
         if sample_weights is None:
