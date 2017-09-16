@@ -8,7 +8,7 @@ class ElasticNet:
     """Fit an elastic net model.
 
     The elastic net is a regularized regularized linear regression model
-    incorperating both L1 and L2 penalty terms.  It is fit by minimizing the
+    incorporating both L1 and L2 penalty terms.  It is fit by minimizing the
     penalized loss function:
 
         sum((y - y_hat)**2) 
@@ -24,40 +24,47 @@ class ElasticNet:
         The relative strengths of the L1 and L2 regularization.
 
     max_iter: positive integer
-        The maximum number of coordinate descent cycles before brekaing out of
+        The maximum number of coordinate descent cycles before breaking out of
         the descent loop.
 
     tol: float
         The convergence tolerance.  The actual convergence tolerance is applied
-        to the absolute multiplicitive change in the coefficient vector. When
+        to the absolute multiplicative change in the coefficient vector. When
         the coefficient vector changes by less than n_params * tol in one full
         coordinate descent cycle, the algorithm terminates.
 
     Attributes
     ----------
     intercept_: float
-        The fit intercept in the regression.  This is stored seperately, as the
+        The fit intercept in the regression.  This is stored separately, as the
         penalty terms are *not* applied to the intercept.
 
-    Adittionally, the following private attrutes are used by the fitting
-    algorithm.  They are stored permenanty so they can be used as warm starts
+    n: integer, positive
+        The number of samples used to fit the model, or the sum of the sample
+        weights.
+
+    p: integer, positive
+        The number of fit parameters in the model.
+
+    Additionally, the following private attributes are used by the fitting
+    algorithm.  They are stored permanently so they can be used as warm starts
     to other ElasticNet objects. This is used both when fitting an entire
     regularization path of models, and also when fitting Glmnet objects, which
     procedure by solving quadratic approximations to the Glmnet loss using the
     ElasticNet.
 
-    Many of the arrays below use a perculiar ordering.  Instead of being
+    Many of the arrays below use a peculiar ordering.  Instead of being
     arranged to match the order of the features in a training matrix X, they
     are instead arranged in order that the predictors enter the model.  This
-    allows for efficient calculation of teh update steps in ElasticNet.fit.
+    allows for efficient calculation of the update steps in ElasticNet.fit.
 
     _active_coefs: array, shape (n_features,)
-        The active set of coefficients. They are stored in the order that thier
+        The active set of coefficients. They are stored in the order that their
         associated features enter into the model, i.e. the j'th coefficient in
         this list is associated with the j'th feature to enter the model.
 
     _active_coef_idx_list: array, shape (n_features,)
-        The indicies of the active coefficients into the column dimension of
+        The indices of the active coefficients into the column dimension of
         the training data.  I.e. the j'th active coefficient is associated with
         the _active_coef_idx_list[j]'th column of X.
 
@@ -70,12 +77,18 @@ class ElasticNet:
         The matrix of dot products of the training data X with itself, but with
         the columns permuted so that the dot products in column j are
         associated with the j'th coefficient to enter the model. This matrix is
-        initialzed to zero, and filled in lazily as coefficients enter the
+        initialized to zero, and filled in lazily as coefficients enter the
         model.
 
     _xy_dots: array, shape (n_features,)
         The dot products of the columns in the training matrix X with the
         target y. Arranged in the same order as the columns of X.
+
+    References
+    ----------
+    The implementation here is based on the discussion in Friedman, Hastie, and
+    Tibshirani: Regularization Paths for Generalized Linear Models via
+    Coordinate Descent (hereafter referenced as [FHT]).
     """
     def __init__(self, lam, alpha, max_iter=10, tol=0.1**5):
         self.lam = lam
@@ -96,6 +109,7 @@ class ElasticNet:
                         xy_dots=None, xx_dots=None,
                         print_state=False):
         """Fit an elastic net with coordinate descent.
+
         Parameters
         ----------
         X: array, shape (n_samples, n_features)
@@ -111,7 +125,7 @@ class ElasticNet:
         sample_weights: array, shape (n_sample, )
             Sample weights used in the deviance minimized by the model. If
             provided, each term in the deviance being minimized is multiplied
-            by its corrosponding weight.
+            by its corresponding weight.
 
         Returns
         -------
@@ -185,6 +199,17 @@ class ElasticNet:
     def _compute_partial_residual(self, xy_dots, xx_dots, j, active_coefs, 
                                         j_to_active_map, n_samples,
                                         n_active_coefs,):
+        """Compute the partial residual used in the elastic net update rule.
+
+        The partial residual is the residual from the predictions using the
+        current model, excluding the coefficient that is currently being
+        updated in the coordinatewise descent (this is the partial in partial
+        residual).
+
+        Reference
+        ---------
+        See equations 5, 6, 8, and 9 in [FHT].
+        """
         partial_prediction = (
             xx_dots[j, :n_active_coefs] * active_coefs[:n_active_coefs])
         xj_dot_residual = (
@@ -196,6 +221,10 @@ class ElasticNet:
 
     def _update_xx_dots(self,
                         xx_dots, X, j, n_active_coefs, active_coef_idx_list):
+        """Update the xx_dots matrix of columnwise dot products with the
+        products involving column j.  This is used when a new predictor enters
+        the model.
+        """
         xx_dots[j, n_active_coefs - 1] = np.dot(X[:, j], X[:, j])
         for idx, active_coef_idx in enumerate(active_coef_idx_list):
             dprod = np.dot(X[:, j], X[:, active_coef_idx])
@@ -204,11 +233,22 @@ class ElasticNet:
         return xx_dots
 
     def _check_converged(self, active_coefs, previous_coefs, n_coef):
+        """Check for convergence.
+
+        Since prediction requires an expensive rearrangement of coefficients,
+        instead of checking if the loss has stabilized, we instead check if the
+        coefficients themselves have stabilized.
+        """
         relative_change = np.sum(np.abs((active_coefs - previous_coefs)))
         return relative_change < n_coef * self.tol
 
     @property
     def coef_(self):
+        """The coefficient estimates of a fit model.
+
+        This attribute returns the coefficient estimates in the same order as
+        the associated columns in X.
+        """
         coef = np.zeros(self.p)
         for i, col_idx in enumerate(self._active_coef_idx_list):
             coef[col_idx] = self._active_coefs[i]
