@@ -111,8 +111,6 @@ class ElasticNet:
             provided, each term in the deviance being minimized is multiplied
             by its corrosponding weight.
 
-        ...
-
         Returns
         -------
         self: ElasticNet object
@@ -167,8 +165,10 @@ class ElasticNet:
                     active_coefs[n_active_coefs - 1] = new_coef
                     active_coef_idx_list.append(j)
                     active_coef_set.add(j)
-                    xx_dots = self._update_xx_dots(xx_dots, X, j, n_active_coefs)
-            is_converged = self._check_converged(active_coefs, previous_coefs)
+                    xx_dots = self._update_xx_dots(
+                        xx_dots, X, j, n_active_coefs, active_coef_idx_list)
+            is_converged = self._check_converged(
+                active_coefs, previous_coefs, n_coef)
             n_iter += 1
  
         self._active_coef_idx_list = active_coef_idx_list
@@ -184,13 +184,14 @@ class ElasticNet:
         partial_prediction = (
             xx_dots[j, :n_active_coefs] * active_coefs[:n_active_coefs])
         xj_dot_residual = (
-            xy_dots[j] - self.intercept_ - np.sum(partial_prediction)
+            xy_dots[j] - self.intercept_ - np.sum(partial_prediction))
         partial_residual = (
             (1 / n_samples) * xj_dot_residual
             + active_coefs[j_to_active_map[j]])
         return partial_residual
 
-    def _update_xx_dots(self, xx_dots, X, j, n_active_coefs):
+    def _update_xx_dots(self,
+                        xx_dots, X, j, n_active_coefs, active_coef_idx_list):
         xx_dots[j, n_active_coefs - 1] = np.dot(X[:, j], X[:, j])
         for idx, active_coef_idx in enumerate(active_coef_idx_list):
             dprod = np.dot(X[:, j], X[:, active_coef_idx])
