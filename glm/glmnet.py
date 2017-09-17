@@ -1,7 +1,8 @@
 import numpy as np
 from itertools import cycle
 from utils import (check_commensurate, check_intercept, check_offset,
-                   check_sample_weights, has_converged, soft_threshold)
+                   check_sample_weights, has_converged, soft_threshold,
+                   weighted_means, weighted_dot, weighted_column_dots)
 
 
 class ElasticNet:
@@ -73,17 +74,6 @@ class ElasticNet:
         position of the j'th column of X in the order in which coefficients
         enter into the model.
 
-    _xx_dots: array, shape (n_features, n_features)
-        The matrix of dot products of the training data X with itself, but with
-        the columns permuted so that the dot products in column j are
-        associated with the j'th coefficient to enter the model. This matrix is
-        initialized to zero, and filled in lazily as coefficients enter the
-        model.
-
-    _xy_dots: array, shape (n_features,)
-        The dot products of the columns in the training matrix X with the
-        target y. Arranged in the same order as the columns of X.
-
     References
     ----------
     The implementation here is based on the discussion in Friedman, Hastie, and
@@ -101,13 +91,8 @@ class ElasticNet:
         self._active_coefs = None
         self._active_coef_idx_list = None
         self._j_to_active_map = None
-        self._xx_dots = None
-        self._xy_dots = None
 
-    def fit(self, X, y, offset=None, sample_weights=None, 
-                        active_coef_idx_list=None, j_to_active_map=None, active_coefs=None,
-                        xy_dots=None, xx_dots=None,
-                        print_state=False):
+    def fit(self, X, y, offset=None, sample_weights=None, print_state=False):
         """Fit an elastic net with coordinate descent.
 
         Parameters
@@ -131,33 +116,74 @@ class ElasticNet:
         -------
         self: ElasticNet object
             The fit model.
+
+        Notes
+        -----
+        The following data structures are used internally by the fitting
+        algorithm.
+
+        x_means: array, shape (n_features,)
+            The weighted column means of the training data X.
+
+        xy_dots: array, shape (n_features,)
+            The dot products of the columns in the training matrix X with the
+            target y. Arranged in the same order as the columns of X.
+
+        offset_dots: array, shape(n_features,)
+            The weighted dot products of the columns of X with the offset
+            vector.
+
+        xx_dots: array, shape (n_features,)
+            The weighted dot products of the columns of the training matrix X
+            with themselves.  I.e., each individual column with itself.
+
+        xtx_dots: array, shape (n_features, n_features)
+            The matrix of weighted dot products of the columns of the training
+            data X with themselves; this includes all such dot products, not
+            just those between columns and themselves. The columns of this
+            matrix are permuted so that the dot products stored in column j of
+            xtx_dots are associated with the j'th coefficient to enter the
+            model. The rows are in order of the columns of X. This matrix is
+            initialized to zero, and filled in lazily as coefficients enter the
+            model, as the cross-column dot products are only needed for the
+            features currently active in the model.
+
+        In addition, see the Attributes notes in the documentation of this
+        class for information on how the coefficient estimates are managed
+        internally.
         """
-        # Check inputs for validity.
+        # -- Check inputs for validity.
         check_commensurate(X, y)
         if sample_weights is None:
-            sample_weights = np.ones(X.shape[0])
+            sample_weights = (1 / X.shape[0]) * np.ones(X.shape[0])
         check_sample_weights(y, sample_weights)
+        if offset is None:
+            offset = np.zeros(X.shape[0])
+        check_offset(y, offset)
 
-        # Set up initial data structures if needed.
+        # -- Set up initial data structures.
         n_samples = X.shape[0]
         n_coef = X.shape[1]
-        self.intercept_ = np.mean(y)
-        if active_coefs is None:
-            active_coefs = np.zeros(n_coef) 
+        self.intercept_ = np.sum(sample_weights * y)
+        # Data structures used for managing the working coefficient estimates.
+        active_coefs = np.zeros(n_coef) 
         n_active_coefs = np.sum(active_coefs != 0)
-        if active_coef_idx_list is None:
-            active_coef_idx_list = []
-            active_coef_set = set(active_coef_idx_list)
-        if j_to_active_map is None:
-            j_to_active_map = {j: n_coef - 1 for j in range(n_coef)}
-        if xy_dots is None:
-            xy_dots = np.dot(X.T, y)
-        if xx_dots is None:
-            xx_dots = np.zeros((n_coef, n_coef))
+        active_coef_idx_list = []
+        active_coef_set = set(active_coef_idx_list)
+        j_to_active_map = {j: n_coef - 1 for j in range(n_coef)}
+        # Data structures holding weighted dot products, used in the
+        # coefficient update calculations.
+        x_means = weighted_means(X, sample_weights)
+        xy_dots = weighted_dot(X.T, y, sample_weights)
+        offset_dots = weighted_dot(X.T, offset, sample_weights)
+        xx_dots = weighted_column_dots(X, sample_weights) 
+        xtx_dots = np.zeros((n_coef, n_coef))
+        # Data elements involving the regularization strength, used in the
+        # coefficient update calculations.
         lambda_alpha = self.lam * self.alpha
-        update_denom = 1 + self.lam * (1 - self.alpha)
+        update_denom_scale = self.lam * (1 - self.alpha)
 
-        # Fit the model by coordinatewise descent.
+        # -- Fit the model by coordinate-wise descent.
         loss = np.inf
         prior_loss = None
         n_iter = 0
@@ -166,11 +192,11 @@ class ElasticNet:
             previous_coefs = active_coefs
             for j in range(n_coef):
                 if print_state:
-                    self._print_state(j, active_coef_idx_list, active_coefs, xx_dots)
+                    self._print_state(j, active_coef_idx_list, active_coefs, xtx_dots)
                 partial_residual = self._compute_partial_residual(
-                    xy_dots, xx_dots, j, active_coefs, 
-                    j_to_active_map, n_samples,
-                    n_active_coefs)
+                    x_means, xy_dots, xx_dots, xtx_dots, offset_dots, 
+                    j, active_coefs, j_to_active_map, n_active_coefs)
+                update_denom = xx_dots[j] + update_denom_scale
                 new_coef = (
                     soft_threshold(partial_residual, lambda_alpha) / update_denom)
                 if j in active_coef_set:
@@ -181,56 +207,59 @@ class ElasticNet:
                     active_coefs[n_active_coefs - 1] = new_coef
                     active_coef_idx_list.append(j)
                     active_coef_set.add(j)
-                    xx_dots = self._update_xx_dots(
-                        xx_dots, X, j, n_active_coefs, active_coef_idx_list)
+                    xtx_dots = self._update_xtx_dots(
+                        xtx_dots, X, j, sample_weights,
+                        n_active_coefs, active_coef_idx_list)
             is_converged = self._check_converged(
                 active_coefs, previous_coefs, n_coef)
             n_iter += 1
  
+        # -- Wrap up.
         self.n = n_samples
         self.p = n_coef
         self._active_coef_idx_list = active_coef_idx_list
         self._j_to_active_map = j_to_active_map
         self._active_coefs = active_coefs
-        self._xx_dots = xx_dots
-        self._xy_dots = xy_dots
         return self
 
-    def _compute_partial_residual(self, xy_dots, xx_dots, j, active_coefs, 
-                                        j_to_active_map, n_samples,
-                                        n_active_coefs,):
+    def _compute_partial_residual(self, 
+                                  x_means, xy_dots, xx_dots, xtx_dots, offset_dots, 
+                                  j, active_coefs, j_to_active_map, n_active_coefs):
         """Compute the partial residual used in the elastic net update rule.
 
         The partial residual is the residual from the predictions using the
         current model, excluding the coefficient that is currently being
-        updated in the coordinatewise descent (this is the partial in partial
+        updated in the coordinate-wise descent (this is the partial in partial
         residual).
 
         Reference
         ---------
         See equations 5, 6, 8, and 9 in [FHT].
         """
-        partial_prediction = (
-            xx_dots[j, :n_active_coefs] * active_coefs[:n_active_coefs])
+        # You are working here!
+        xj_dot_partial_prediction = (
+            x_means[j] * self.intercept_ 
+            + np.sum(xtx_dots[j, :n_active_coefs] * active_coefs[:n_active_coefs]))
         xj_dot_residual = (
-            xy_dots[j] - self.intercept_ - np.sum(partial_prediction))
+            xy_dots[j] - xj_dot_partial_prediction - offset_dots[j])
         partial_residual = (
-            (1 / n_samples) * xj_dot_residual
-            + active_coefs[j_to_active_map[j]])
+            xj_dot_residual + xx_dots[j] * active_coefs[j_to_active_map[j]])
         return partial_residual
 
-    def _update_xx_dots(self,
-                        xx_dots, X, j, n_active_coefs, active_coef_idx_list):
-        """Update the xx_dots matrix of columnwise dot products with the
-        products involving column j.  This is used when a new predictor enters
-        the model.
+    def _update_xtx_dots(self,
+                         xtx_dots, X, j, sample_weights, 
+                         n_active_coefs, active_coef_idx_list):
+        """Update the xtx_dots matrix of column-wise weighted dot products with
+        the products involving column j.  This is used when a new predictor
+        enters the model.
         """
-        xx_dots[j, n_active_coefs - 1] = np.dot(X[:, j], X[:, j])
+        xtx_dots[j, n_active_coefs - 1] = weighted_dot(
+            X[:, j], X[:, j], sample_weights)
         for idx, active_coef_idx in enumerate(active_coef_idx_list):
-            dprod = np.dot(X[:, j], X[:, active_coef_idx])
-            xx_dots[j, idx] = dprod
-            xx_dots[idx, n_active_coefs - 1] = dprod
-        return xx_dots
+            dprod = weighted_dot(X[:, j], X[:, active_coef_idx], sample_weights)
+            xtx_dots[j, idx] = dprod
+            xtx_dots[idx, n_active_coefs - 1] = dprod
+        return xtx_dots
 
     def _check_converged(self, active_coefs, previous_coefs, n_coef):
         """Check for convergence.
@@ -254,9 +283,9 @@ class ElasticNet:
             coef[col_idx] = self._active_coefs[i]
         return coef
 
-    def _print_state(self, j, active_coef_idx_list, active_coefs, xx_dots):
+    def _print_state(self, j, active_coef_idx_list, active_coefs, xtx_dots):
         print()
         print("loop coef: ", j)
         print("active coef idxs: ", active_coef_idx_list)
         print("active coefs: ", active_coefs)
-        print("xx_dots:\n", xx_dots)
+        print("xtx_dots:\n", xtx_dots)

@@ -36,3 +36,12 @@ def soft_threshold(z, gamma):
     if gamma >= abs_z:
         return 0.0
     return np.sign(z) * (abs_z - gamma)
+
+def weighted_means(X, weights):
+    return np.mean(X * weights.reshape(-1, 1), axis=0) 
+
+def weighted_dot(x0, x1, weights):
+    return np.dot(x0, weights * x1)
+
+def weighted_column_dots(X, weights):
+    return np.sum(X * X * weights.reshape(-1, 1), axis=0)
