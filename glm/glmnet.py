@@ -1,6 +1,6 @@
 import numpy as np
 from itertools import cycle
-from utils import (check_commensurate, check_intercept, check_offset,
+from .utils import (check_commensurate, check_intercept, check_offset,
                    check_sample_weights, has_converged, soft_threshold,
                    weighted_means, weighted_dot, weighted_column_dots)
 
