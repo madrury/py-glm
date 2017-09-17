@@ -1,11 +1,12 @@
 import numpy as np
+import statsmodels.api as sm
 from glm.glm import GLM
 from glm.families import Gaussian, Bernoulli
 from generate_data import make_linear_regression
 
 N_SAMPLES = 100000
 TOL = 10**(-1)
-N_REGRESSION_TESTS=100
+N_REGRESSION_TESTS=25
 
 
 def test_linear_regressions():
@@ -22,6 +23,9 @@ def test_linear_regressions():
         lr = GLM(family=Gaussian())
         lr.fit(X, y, tol=10**(-8))
         assert approx_equal(lr.coef_, parameters)
+        mod = sm.OLS(y, X)
+        res = mod.fit()
+        assert approx_equal(lr.coef_, res.params)
 
     for _ in range(N_REGRESSION_TESTS):
         _test_random_linear_regression()
