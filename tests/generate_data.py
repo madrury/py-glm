@@ -47,7 +47,7 @@ def make_covariance_matrix(n_features=15):
 
 def make_regression_coeffs(X, n_drop_features=None):
     n_features = X.shape[1]
-    parameters = np.random.uniform(-5, 5, size=n_features)
+    parameters = np.random.uniform(-1, 1, size=n_features)
     if n_drop_features is not None:
         drop_idxs = np.random.choice(
             list(range(len(parameters))), size=n_drop_features, replace=False)
@@ -61,5 +61,5 @@ def make_linear_regression_y(X, parameters, resid_sd=0.25):
 
 def make_logistic_regression_y(X, parameters):
     y_systematic = np.dot(X, parameters)
-    p = 1 / (1 + np.exp(- y_systematic))
-    return np.random.binomial(1, p)
+    p = 1 / (1 + np.exp(-y_systematic))
+    return np.random.binomial(1, p=p, size=X.shape[0])
