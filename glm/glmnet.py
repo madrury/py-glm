@@ -12,7 +12,7 @@ class ElasticNet:
     incorporating both L1 and L2 penalty terms.  It is fit by minimizing the
     penalized loss function:
 
-        sum((y - y_hat)**2) 
+        sum((y - y_hat)**2)
             + lam * ((1 - alpha)/2 * sum(beta**2)
             + alpha * sum(abs(beta)))
 
@@ -93,8 +93,7 @@ class ElasticNet:
         self._active_coef_idx_list = None
         self._j_to_active_map = None
 
-    def fit(self, X, y, offset=None, sample_weights=None, warm_start=None, 
-                        print_state=False):
+    def fit(self, X, y, offset=None, sample_weights=None, warm_start=None):
         """Fit an elastic net with coordinate descent.
 
         Parameters
@@ -169,7 +168,7 @@ class ElasticNet:
         self.intercept_ = np.sum(sample_weights * y)
         # Data structures used for managing the working coefficient estimates.
         if warm_start is None:
-            active_coefs = np.zeros(n_coef) 
+            active_coefs = np.zeros(n_coef)
             active_coef_idx_list = []
             j_to_active_map = {j: n_coef - 1 for j in range(n_coef)}
         else:
@@ -183,7 +182,7 @@ class ElasticNet:
         x_means = weighted_means(X, sample_weights)
         xy_dots = weighted_dot(X.T, y, sample_weights)
         offset_dots = weighted_dot(X.T, offset, sample_weights)
-        xx_dots = weighted_column_dots(X, sample_weights) 
+        xx_dots = weighted_column_dots(X, sample_weights)
         xtx_dots = np.zeros((n_coef, n_coef))
         # Data elements involving the regularization strength, used in the
         # coefficient update calculations.
@@ -199,7 +198,7 @@ class ElasticNet:
             previous_coefs[:] = active_coefs
             for j in range(n_coef):
                 partial_residual = self._compute_partial_residual(
-                    x_means, xy_dots, xx_dots, xtx_dots, offset_dots, 
+                    x_means, xy_dots, xx_dots, xtx_dots, offset_dots,
                     j, active_coefs, j_to_active_map, n_active_coefs)
                 update_denom = xx_dots[j] + update_denom_scale
                 new_coef = (
@@ -218,7 +217,7 @@ class ElasticNet:
             is_converged = self._check_converged(
                 active_coefs, previous_coefs, n_coef)
             n_iter += 1
- 
+
         # -- Wrap up.
         self.n = n_samples
         self.p = n_coef
@@ -227,8 +226,8 @@ class ElasticNet:
         self._active_coefs = active_coefs
         return self
 
-    def _compute_partial_residual(self, 
-                                  x_means, xy_dots, xx_dots, xtx_dots, offset_dots, 
+    def _compute_partial_residual(self,
+                                  x_means, xy_dots, xx_dots, xtx_dots, offset_dots,
                                   j, active_coefs, j_to_active_map, n_active_coefs):
         """Compute the partial residual used in the elastic net update rule.
 
@@ -245,7 +244,7 @@ class ElasticNet:
         """
         # You are working here!
         xj_dot_partial_prediction = (
-            x_means[j] * self.intercept_ 
+            x_means[j] * self.intercept_
             + np.sum(xtx_dots[j, :n_active_coefs] * active_coefs[:n_active_coefs]))
         xj_dot_residual = (
             xy_dots[j] - xj_dot_partial_prediction - offset_dots[j])
@@ -254,7 +253,7 @@ class ElasticNet:
         return partial_residual
 
     def _update_xtx_dots(self,
-                         xtx_dots, X, j, sample_weights, 
+                         xtx_dots, X, j, sample_weights,
                          n_active_coefs, active_coef_idx_list):
         """Update the xtx_dots matrix of weighted dot products of the columns
         in the training data with the products involving column j. This is used
