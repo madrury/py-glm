@@ -54,10 +54,11 @@ class ElasticNet:
     procedure by solving quadratic approximations to the Glmnet loss using the
     ElasticNet.
 
-    Many of the arrays below use a peculiar ordering.  Instead of being
-    arranged to match the order of the features in a training matrix X, they
-    are instead arranged in order that the predictors enter the model.  This
-    allows for efficient calculation of the update steps in ElasticNet.fit.
+    The array below (and many of the other arrays used internally during
+    fitting) use a peculiar ordering.  Instead of being arranged to match the
+    order of the features in a training matrix X, they are instead arranged in
+    order that the predictors enter the model.  This allows for efficient
+    calculation of the update steps in ElasticNet.fit.
 
     _active_coefs: array, shape (n_features,)
         The active set of coefficients. They are stored in the order that their
@@ -92,7 +93,8 @@ class ElasticNet:
         self._active_coef_idx_list = None
         self._j_to_active_map = None
 
-    def fit(self, X, y, offset=None, sample_weights=None, print_state=False):
+    def fit(self, X, y, offset=None, sample_weights=None, warm_start=None, 
+                        print_state=False):
         """Fit an elastic net with coordinate descent.
 
         Parameters
@@ -166,11 +168,16 @@ class ElasticNet:
         n_coef = X.shape[1]
         self.intercept_ = np.sum(sample_weights * y)
         # Data structures used for managing the working coefficient estimates.
-        active_coefs = np.zeros(n_coef) 
-        n_active_coefs = np.sum(active_coefs != 0)
-        active_coef_idx_list = []
+        if warm_start is None:
+            active_coefs = np.zeros(n_coef) 
+            active_coef_idx_list = []
+            j_to_active_map = {j: n_coef - 1 for j in range(n_coef)}
+        else:
+            active_coefs = warm_start._active_coefs
+            active_coef_idx_list = warm_start._active_coef_idx_list
+            j_to_active_map = warm_start._j_to_active_map
         active_coef_set = set(active_coef_idx_list)
-        j_to_active_map = {j: n_coef - 1 for j in range(n_coef)}
+        n_active_coefs = np.sum(active_coefs != 0)
         # Data structures holding weighted dot products, used in the
         # coefficient update calculations.
         x_means = weighted_means(X, sample_weights)
@@ -187,11 +194,10 @@ class ElasticNet:
         loss = np.inf
         n_iter = 0
         is_converged = False
+        previous_coefs = np.empty(n_coef)
         while n_iter < self.max_iter and not is_converged:
-            previous_coefs = np.copy(active_coefs)
+            previous_coefs[:] = active_coefs
             for j in range(n_coef):
-                if print_state:
-                    self._print_state(j, active_coef_idx_list, active_coefs, xtx_dots)
                 partial_residual = self._compute_partial_residual(
                     x_means, xy_dots, xx_dots, xtx_dots, offset_dots, 
                     j, active_coefs, j_to_active_map, n_active_coefs)
@@ -233,7 +239,9 @@ class ElasticNet:
 
         Reference
         ---------
-        See equations 5, 6, 8, and 9 in [FHT].
+        The equations 5, 6, 8, and 9 in [FHT] describe the basic and weighted
+        cases. Adding support for an offset is a simple elaboration on the
+        ideas included there.
         """
         # You are working here!
         xj_dot_partial_prediction = (
@@ -248,9 +256,9 @@ class ElasticNet:
     def _update_xtx_dots(self,
                          xtx_dots, X, j, sample_weights, 
                          n_active_coefs, active_coef_idx_list):
-        """Update the xtx_dots matrix of column-wise weighted dot products with
-        the products involving column j.  This is used when a new predictor
-        enters the model.
+        """Update the xtx_dots matrix of weighted dot products of the columns
+        in the training data with the products involving column j. This is used
+        when a new predictor enters the model.
         """
         xtx_dots[j, n_active_coefs - 1] = weighted_dot(
             X[:, j], X[:, j], sample_weights)
@@ -281,10 +289,3 @@ class ElasticNet:
         for i, col_idx in enumerate(self._active_coef_idx_list):
             coef[col_idx] = self._active_coefs[i]
         return coef
-
-    def _print_state(self, j, active_coef_idx_list, active_coefs, xtx_dots):
-        print()
-        print("loop coef: ", j)
-        print("active coef idxs: ", active_coef_idx_list)
-        print("active coefs: ", active_coefs)
-        print("xtx_dots:\n", xtx_dots)
