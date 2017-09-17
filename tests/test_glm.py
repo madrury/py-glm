@@ -1,11 +1,13 @@
 import numpy as np
 import statsmodels.api as sm
+import statsmodels
 from glm.glm import GLM
-from glm.families import Gaussian, Bernoulli
-from generate_data import make_linear_regression, make_logistic_regression
+from glm.families import Gaussian, Bernoulli, Poisson
+from generate_data import (make_linear_regression, make_logistic_regression,
+                           make_poisson_regression)
 
-N_SAMPLES = 100000
-TOL = 10**(-1)
+N_SAMPLES = 10000
+TOL = 10**(-2)
 N_REGRESSION_TESTS=5
 
 
@@ -19,7 +21,7 @@ def test_linear_regressions():
             n_uncorr_features=n_uncorr_features,
             n_corr_features=n_corr_features,
             n_drop_features=n_drop_features,
-            resid_sd=0.05)
+            resid_sd=0.01)
         lr = GLM(family=Gaussian())
         lr.fit(X, y, tol=10**(-8))
         assert approx_equal(lr.coef_, parameters)
@@ -42,7 +44,7 @@ def test_logistic_regressions():
             n_corr_features=n_corr_features,
             n_drop_features=n_drop_features)
         lr = GLM(family=Bernoulli())
-        lr.fit(X, y, tol=10**(-8))
+        lr.fit(X, y)
         #assert approx_equal(lr.coef_, parameters)
         mod = sm.Logit(y, X)
         res = mod.fit()
@@ -51,6 +53,28 @@ def test_logistic_regressions():
 
     for _ in range(N_REGRESSION_TESTS):
         _test_random_logistic_regression()
+
+def test_poisson_regressions():
+
+    def _test_random_poisson_regression():
+        n_uncorr_features, n_corr_features, n_drop_features = (
+            generate_regression_hyperparamters())
+        X, y, parameters = make_poisson_regression(
+            n_samples=N_SAMPLES,
+            n_uncorr_features=n_uncorr_features,
+            n_corr_features=n_corr_features,
+            n_drop_features=n_drop_features,
+            coef_range=(-0.1, 0.1))
+        pr = GLM(family=Poisson())
+        pr.fit(X, y)
+        #assert approx_equal(pr.coef_, parameters)
+        mod = statsmodels.discrete.discrete_model.Poisson(y, X)
+        res = mod.fit()
+        assert approx_equal(pr.coef_, res.params)
+        assert approx_equal(pr.coef_standard_error_, res.bse)
+
+    for _ in range(N_REGRESSION_TESTS):
+        _test_random_poisson_regression()
 
 
 def approx_equal(x0, x1, tol=TOL):

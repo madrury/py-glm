@@ -263,4 +263,3 @@ class GLM:
         diag_idxs = list(range(1, X.shape[1]))
         ddbeta[diag_idxs, diag_idxs] += self.alpha
         return ddbeta
-
