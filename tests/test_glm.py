@@ -6,7 +6,7 @@ from generate_data import make_linear_regression, make_logistic_regression
 
 N_SAMPLES = 100000
 TOL = 10**(-1)
-N_REGRESSION_TESTS=25
+N_REGRESSION_TESTS=5
 
 
 def test_linear_regressions():
@@ -26,6 +26,7 @@ def test_linear_regressions():
         mod = sm.OLS(y, X)
         res = mod.fit()
         assert approx_equal(lr.coef_, res.params)
+        assert approx_equal(lr.coef_standard_error_, res.bse)
 
     for _ in range(N_REGRESSION_TESTS):
         _test_random_linear_regression()
@@ -42,13 +43,15 @@ def test_logistic_regressions():
             n_drop_features=n_drop_features)
         lr = GLM(family=Bernoulli())
         lr.fit(X, y, tol=10**(-8))
-        assert approx_equal(lr.coef_, parameters)
+        #assert approx_equal(lr.coef_, parameters)
         mod = sm.Logit(y, X)
         res = mod.fit()
         assert approx_equal(lr.coef_, res.params)
+        assert approx_equal(lr.coef_standard_error_, res.bse)
 
     for _ in range(N_REGRESSION_TESTS):
         _test_random_logistic_regression()
+
 
 def approx_equal(x0, x1, tol=TOL):
     all_within_tol = np.abs(x0 - x1) < tol
@@ -59,4 +62,3 @@ def generate_regression_hyperparamters():
     n_corr_features = np.random.choice(list(range(1, 10)))
     n_drop_features = np.random.choice(n_uncorr_features + n_corr_features)
     return n_uncorr_features, n_corr_features, n_drop_features
-
