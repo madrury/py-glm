@@ -31,12 +31,13 @@ def make_correlated_data(n_samples=10000,
                          n_uncorr_features=10, n_corr_features=15,
                          include_intercept=True):
     X_uncorr = make_uncorrelated_data(n_samples, n_uncorr_features)
-    cov_matrix = make_covariance_matrix(n_uncorr_features)
-    X_corr = np.dot(X_uncorr, cov_matrix)
+    X_corr_base = make_uncorrelated_data(n_samples, n_corr_features)
+    cov_matrix = make_covariance_matrix(n_corr_features)
+    X_corr = np.dot(X_corr_base, cov_matrix)
     X = np.column_stack((X_uncorr, X_corr))
     if include_intercept:
-        intecept = np.ones(n_samples).reshape(-1, 1)
-        return np.column_stack((intecept, X))
+        intercept = np.ones(n_samples).reshape(-1, 1)
+        return np.column_stack((intercept, X))
     return X
 
 def make_covariance_matrix(n_features=15):
