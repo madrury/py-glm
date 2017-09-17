@@ -185,11 +185,10 @@ class ElasticNet:
 
         # -- Fit the model by coordinate-wise descent.
         loss = np.inf
-        prior_loss = None
         n_iter = 0
         is_converged = False
         while n_iter < self.max_iter and not is_converged:
-            previous_coefs = active_coefs
+            previous_coefs = np.copy(active_coefs)
             for j in range(n_coef):
                 if print_state:
                     self._print_state(j, active_coef_idx_list, active_coefs, xtx_dots)
