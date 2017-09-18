@@ -31,12 +31,24 @@ def make_poisson_regression(n_samples=10000,
                             n_uncorr_features=10, n_corr_features=10,
                             n_drop_features=4,
                             include_intercept=True,
-                             coef_range=(-1, 1)):
+                            coef_range=(-1, 1)):
     X = make_correlated_data(
         n_samples, n_uncorr_features, n_corr_features, include_intercept)
     parameters = make_regression_coeffs(
         X, n_drop_features=n_drop_features, coef_range=coef_range)
     y = make_poisson_regression_y(X, parameters)
+    return (X, y, parameters)
+
+def make_gamma_regression(n_samples=10000,
+                            n_uncorr_features=10, n_corr_features=10,
+                            n_drop_features=4,
+                            include_intercept=True,
+                            coef_range=(-1, 1)):
+    X = make_correlated_data(
+        n_samples, n_uncorr_features, n_corr_features, include_intercept)
+    parameters = make_regression_coeffs(
+        X, n_drop_features=n_drop_features, coef_range=coef_range)
+    y = make_gamma_regression_y(X, parameters)
     return (X, y, parameters)
 
 
@@ -85,4 +97,8 @@ def make_poisson_regression_y(X, parameters):
     y_systematic = np.dot(X, parameters)
     mu = np.exp(y_systematic)
     return np.random.poisson(lam=mu, size=X.shape[0])
-  
+
+def make_gamma_regression_y(X, parameters):
+    y_systematic = np.dot(X, parameters)
+    mu = np.exp(y_systematic)
+    return np.random.exponential(scale=mu, size=X.shape[0])
