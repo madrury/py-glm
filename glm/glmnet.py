@@ -51,7 +51,7 @@ class ElasticNet:
     algorithm.  They are stored permanently so they can be used as warm starts
     to other ElasticNet objects. This is used both when fitting an entire
     regularization path of models, and also when fitting Glmnet objects, which
-    procedure by solving quadratic approximations to the Glmnet loss using the
+    procede by solving quadratic approximations to the Glmnet loss using the
     ElasticNet.
 
     The array below (and many of the other arrays used internally during
@@ -88,7 +88,6 @@ class ElasticNet:
         self.tol = tol
         self.n = None
         self.p = None
-        self.intercept_ = None
         self._active_coefs = None
         self._active_coef_idx_list = None
         self._j_to_active_map = None
@@ -155,6 +154,7 @@ class ElasticNet:
         """
         # -- Check inputs for validity.
         check_commensurate(X, y)
+        check_intercept(X)
         if sample_weights is None:
             sample_weights = (1 / X.shape[0]) * np.ones(X.shape[0])
         check_sample_weights(y, sample_weights)
@@ -165,7 +165,6 @@ class ElasticNet:
         # -- Set up initial data structures.
         n_samples = X.shape[0]
         n_coef = X.shape[1]
-        self.intercept_ = np.sum(sample_weights * y)
         # Data structures used for managing the working coefficient estimates.
         if warm_start is None:
             active_coefs = np.zeros(n_coef)
@@ -179,7 +178,9 @@ class ElasticNet:
         n_active_coefs = np.sum(active_coefs != 0)
         # Data structures holding weighted dot products, used in the
         # coefficient update calculations.
+        weight_sum = np.sum(sample_weights)
         x_means = weighted_means(X, sample_weights)
+        y_means = np.sum(sample_weights * y)
         xy_dots = weighted_dot(X.T, y, sample_weights)
         offset_dots = weighted_dot(X.T, offset, sample_weights)
         xx_dots = weighted_column_dots(X, sample_weights)
@@ -200,9 +201,13 @@ class ElasticNet:
                 partial_residual = self._compute_partial_residual(
                     x_means, xy_dots, xx_dots, xtx_dots, offset_dots,
                     j, active_coefs, j_to_active_map, n_active_coefs)
-                update_denom = xx_dots[j] + update_denom_scale
-                new_coef = (
-                    soft_threshold(partial_residual, lambda_alpha) / update_denom)
+                if j == 0:
+                    new_coef = partial_residual / weight_sum 
+                else:
+                    update_denom = xx_dots[j] + update_denom_scale
+                    partial_resid_threshold = soft_threshold(
+                        partial_residual, lambda_alpha)
+                    new_coef = partial_resid_threshold / update_denom
                 if j in active_coef_set:
                     active_coefs[j_to_active_map[j]] = new_coef
                 elif new_coef != 0.0:
@@ -244,7 +249,6 @@ class ElasticNet:
         """
         # You are working here!
         xj_dot_partial_prediction = (
-            x_means[j] * self.intercept_
             + np.sum(xtx_dots[j, :n_active_coefs] * active_coefs[:n_active_coefs]))
         xj_dot_residual = (
             xy_dots[j] - xj_dot_partial_prediction - offset_dots[j])
