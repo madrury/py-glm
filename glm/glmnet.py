@@ -247,7 +247,6 @@ class ElasticNet:
         cases. Adding support for an offset is a simple elaboration on the
         ideas included there.
         """
-        # You are working here!
         xj_dot_partial_prediction = (
             + np.sum(xtx_dots[j, :n_active_coefs] * active_coefs[:n_active_coefs]))
         xj_dot_residual = (
@@ -292,3 +291,18 @@ class ElasticNet:
         for i, col_idx in enumerate(self._active_coef_idx_list):
             coef[col_idx] = self._active_coefs[i]
         return coef
+
+    def predict(self, X):
+        """Return predictions given an array X.
+
+        Parameters
+        ----------
+        X: array, shape (n_samples, n_features)
+            Data.
+
+        Returns
+        -------
+        preds: array, shape (n_samples, )
+            Predictions.
+        """
+        return np.dot(X, self.coef_)
