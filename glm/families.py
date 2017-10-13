@@ -78,6 +78,12 @@ class Gaussian(ExponentialFamily, ExponentialFamilyMixin):
     def sample(self, mus, dispersion):
         return np.random.normal(mus, np.sqrt(dispersion))
 
+    def initial_working_response(self, y):
+        return y
+
+    def initial_working_weights(self, y):
+        return (1 / len(y)) * np.ones(len(y))
+
 
 class Bernoulli(ExponentialFamily, ExponentialFamilyMixin):
     """A Bernoulli exponential family, used to fit a classical logistic model.
@@ -102,6 +108,12 @@ class Bernoulli(ExponentialFamily, ExponentialFamilyMixin):
 
     def sample(self, mus, dispersion):
         return np.random.binomial(1, mus)
+
+    def initial_working_response(self, y):
+        return 0.5 + (y - 0.5) / 0.25
+
+    def initial_working_weights(self, y):
+        return 0.25 * np.ones(len(y))
 
 
 class QuasiPoisson(ExponentialFamily, ExponentialFamilyMixin):

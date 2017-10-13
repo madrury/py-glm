@@ -1,3 +1,4 @@
+from copy import copy
 import numpy as np
 from itertools import cycle
 from .utils import (check_commensurate, check_intercept, check_offset,
@@ -82,6 +83,7 @@ class ElasticNet:
     Coordinate Descent (hereafter referenced as [FHT]).
     """
     def __init__(self, lam, alpha, max_iter=10, tol=0.1**5):
+        # TODO: Check that alpha is between zero and one.
         self.lam = lam
         self.alpha = alpha
         self.max_iter = max_iter
@@ -171,9 +173,9 @@ class ElasticNet:
             active_coef_idx_list = []
             j_to_active_map = {j: n_coef - 1 for j in range(n_coef)}
         else:
-            active_coefs = warm_start._active_coefs
-            active_coef_idx_list = warm_start._active_coef_idx_list
-            j_to_active_map = warm_start._j_to_active_map
+            active_coefs = np.copy(warm_start._active_coefs)
+            active_coef_idx_list = warm_start._active_coef_idx_list[:]
+            j_to_active_map = copy(warm_start._j_to_active_map)
         active_coef_set = set(active_coef_idx_list)
         n_active_coefs = np.sum(active_coefs != 0)
         # Data structures holding weighted dot products, used in the
@@ -185,6 +187,12 @@ class ElasticNet:
         offset_dots = weighted_dot(X.T, offset, sample_weights)
         xx_dots = weighted_column_dots(X, sample_weights)
         xtx_dots = np.zeros((n_coef, n_coef))
+        # If we are warm-starting, we need to calculate the weighted dot
+        # products of X with itself for all the currently active coefficients.
+        for i in range(n_active_coefs):
+            xtx_dots = self._update_xtx_dots(
+                        xtx_dots, X, active_coef_idx_list[i], sample_weights,
+                        n_active_coefs, active_coef_idx_list)
         # Data elements involving the regularization strength, used in the
         # coefficient update calculations.
         lambda_alpha = self.lam * self.alpha
@@ -248,7 +256,7 @@ class ElasticNet:
         ideas included there.
         """
         xj_dot_partial_prediction = (
-            + np.sum(xtx_dots[j, :n_active_coefs] * active_coefs[:n_active_coefs]))
+            np.sum(xtx_dots[j, :n_active_coefs] * active_coefs[:n_active_coefs]))
         xj_dot_residual = (
             xy_dots[j] - xj_dot_partial_prediction - offset_dots[j])
         partial_residual = (
@@ -306,3 +314,40 @@ class ElasticNet:
             Predictions.
         """
         return np.dot(X, self.coef_)
+
+
+class GLMNet:
+
+    def __init__(self, family, lambdas, alpha, max_iter=10, tol=0.1**5):
+        # TODO: Check that lambdas is in decreasing order.
+        # TODO: Check that alpha is between zero and one.
+        self.family = family
+        self.alpha = alpha
+        self.lambdas = lambdas
+        self.max_iter = max_iter
+        self.tol = tol
+        self._enets = None
+
+    def fit(self, X, y):
+        self._enets = []
+        working_response = self.family.initial_working_response(y)
+        working_weights = self.family.initial_working_weights(y)
+        for i, lam in enumerate(self.lambdas):
+            enet = ElasticNet(lam=lam, alpha=self.alpha)
+            if i == 0:
+                enet.fit(X, working_response, sample_weights=working_weights)
+            else:
+                enet.fit(X, working_response, sample_weights=working_weights,
+                         warm_start=self._enets[-1])
+            working_response, working_weights = (
+                self.make_working_response_and_weights(X, y, enet))
+            self._enets.append(enet)
+
+    def make_working_response_and_weights(self, X, y, enet):
+        nu = enet.predict(X)
+        mu = self.family.inv_link(nu)
+        g_prime = self.family.d_inv_link(nu, mu)
+        var = self.family.variance(mu)
+        working_response = nu + (y - mu) / g_prime
+        working_weights = (1 / X.shape[0]) * g_prime**2 / var
+        return working_response, working_weights
