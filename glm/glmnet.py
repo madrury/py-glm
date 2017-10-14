@@ -82,7 +82,7 @@ class ElasticNet:
     Tibshirani: Regularization Paths for Generalized Linear Models via
     Coordinate Descent (hereafter referenced as [FHT]).
     """
-    def __init__(self, lam, alpha, max_iter=25, tol=0.1**5):
+    def __init__(self, lam, alpha, max_iter=10, tol=0.1**5):
         # TODO: Check that alpha is between zero and one.
         self.lam = lam
         self.alpha = alpha
@@ -173,12 +173,13 @@ class ElasticNet:
             active_coefs = np.zeros(n_coef)
             active_coef_idx_list = []
             j_to_active_map = {j: n_coef - 1 for j in range(n_coef)}
+            n_active_coefs = 0
         else:
             active_coefs = np.copy(warm_start._active_coefs)
             active_coef_idx_list = warm_start._active_coef_idx_list[:]
             j_to_active_map = copy(warm_start._j_to_active_map)
+            n_active_coefs = warm_start._n_active_coefs
         active_coef_set = set(active_coef_idx_list)
-        n_active_coefs = np.sum(active_coefs != 0)
         self._coef_path = []
         # Data structures holding weighted dot products, used in the
         # coefficient update calculations.
@@ -188,9 +189,9 @@ class ElasticNet:
         xy_dots = weighted_dot(X.T, y, sample_weights)
         offset_dots = weighted_dot(X.T, offset, sample_weights)
         xx_dots = weighted_column_dots(X, sample_weights)
-        xtx_dots = np.zeros((n_coef, n_coef))
         # If we are warm-starting, we need to calculate the weighted dot
         # products of X with itself for all the currently active coefficients.
+        xtx_dots = np.zeros((n_coef, n_coef))
         for i in range(n_active_coefs):
             xtx_dots = self._update_xtx_dots(
                         xtx_dots, X, active_coef_idx_list[i], sample_weights,
@@ -201,7 +202,6 @@ class ElasticNet:
         update_denom_scale = self.lam * (1 - self.alpha)
 
         # -- Fit the model by coordinate-wise descent.
-        loss = np.inf
         n_iter = 0
         is_converged = False
         previous_coefs = np.empty(n_coef)
@@ -244,6 +244,7 @@ class ElasticNet:
         self._active_coef_idx_list = active_coef_idx_list
         self._j_to_active_map = j_to_active_map
         self._active_coefs = active_coefs
+        self._n_active_coefs = n_active_coefs
         return self
 
     def _compute_partial_residual(self,
