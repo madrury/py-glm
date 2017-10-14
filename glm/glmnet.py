@@ -227,6 +227,7 @@ class ElasticNet:
                     xtx_dots = self._update_xtx_dots(
                         xtx_dots, X, j, sample_weights,
                         n_active_coefs, active_coef_idx_list)
+
             is_converged = self._check_converged(
                 active_coefs, previous_coefs, n_coef)
             n_iter += 1

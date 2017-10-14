@@ -110,10 +110,10 @@ class Bernoulli(ExponentialFamily, ExponentialFamilyMixin):
         return np.random.binomial(1, mus)
 
     def initial_working_response(self, y):
-        return 0.5 + (y - 0.5) / 0.25
+        return (y - 0.5) / 0.25
 
     def initial_working_weights(self, y):
-        return 0.25 * np.ones(len(y))
+        return (1 / len(y)) * 0.25 * np.ones(len(y))
 
 
 class QuasiPoisson(ExponentialFamily, ExponentialFamilyMixin):
