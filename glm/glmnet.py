@@ -2,8 +2,8 @@ from copy import copy
 import numpy as np
 from itertools import cycle
 from .utils import (check_commensurate, check_intercept, check_offset,
-                   check_sample_weights, has_converged, soft_threshold,
-                   weighted_means, weighted_dot, weighted_column_dots)
+                    check_sample_weights, has_converged, soft_threshold,
+                    weighted_means, weighted_dot, weighted_column_dots)
 
 
 class ElasticNet:
@@ -82,7 +82,7 @@ class ElasticNet:
     Tibshirani: Regularization Paths for Generalized Linear Models via
     Coordinate Descent (hereafter referenced as [FHT]).
     """
-    def __init__(self, lam, alpha, max_iter=10, tol=0.1**5):
+    def __init__(self, lam, alpha, max_iter=25, tol=0.1**5):
         # TODO: Check that alpha is between zero and one.
         self.lam = lam
         self.alpha = alpha
@@ -93,6 +93,7 @@ class ElasticNet:
         self._active_coefs = None
         self._active_coef_idx_list = None
         self._j_to_active_map = None
+        self._coef_path = None
 
     def fit(self, X, y, offset=None, sample_weights=None, warm_start=None):
         """Fit an elastic net with coordinate descent.
@@ -178,6 +179,7 @@ class ElasticNet:
             j_to_active_map = copy(warm_start._j_to_active_map)
         active_coef_set = set(active_coef_idx_list)
         n_active_coefs = np.sum(active_coefs != 0)
+        self._coef_path = []
         # Data structures holding weighted dot products, used in the
         # coefficient update calculations.
         weight_sum = np.sum(sample_weights)
@@ -227,6 +229,10 @@ class ElasticNet:
                     xtx_dots = self._update_xtx_dots(
                         xtx_dots, X, j, sample_weights,
                         n_active_coefs, active_coef_idx_list)
+
+            coefs = self._make_true_coefs(
+                n_coef, active_coefs, active_coef_idx_list)
+            self._coef_path.append(coefs)
 
             is_converged = self._check_converged(
                 active_coefs, previous_coefs, n_coef)
@@ -296,9 +302,16 @@ class ElasticNet:
         This attribute returns the coefficient estimates in the same order as
         the associated columns in X.
         """
-        coef = np.zeros(self.p)
-        for i, col_idx in enumerate(self._active_coef_idx_list):
-            coef[col_idx] = self._active_coefs[i]
+        return self._make_true_coefs(
+            self.p, self._active_coefs, self._active_coef_idx_list)
+
+    def _make_true_coefs(self, n_coef, active_coefs, active_coef_idx_list):
+        """Process active coefficient list into an array with coefficients in
+        thier natrual order.
+        """
+        coef = np.zeros(n_coef)
+        for i, col_idx in enumerate(active_coef_idx_list):
+            coef[col_idx] = active_coefs[i]
         return coef
 
     def predict(self, X):
