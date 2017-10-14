@@ -82,7 +82,7 @@ class ElasticNet:
     Tibshirani: Regularization Paths for Generalized Linear Models via
     Coordinate Descent (hereafter referenced as [FHT]).
     """
-    def __init__(self, lam, alpha, max_iter=10, tol=0.1**5):
+    def __init__(self, lam, alpha, max_iter=25, tol=0.1**3):
         # TODO: Check that alpha is between zero and one.
         self.lam = lam
         self.alpha = alpha
@@ -234,8 +234,8 @@ class ElasticNet:
                 n_coef, active_coefs, active_coef_idx_list)
             self._coef_path.append(coefs)
 
-            is_converged = self._check_converged(
-                active_coefs, previous_coefs, n_coef)
+            is_converged = np.allclose(
+                active_coefs, previous_coefs, rtol=self.tol)
             n_iter += 1
 
         # -- Wrap up.
@@ -333,7 +333,7 @@ class ElasticNet:
 
 class GLMNet:
 
-    def __init__(self, family, lambdas, alpha, max_iter=10, tol=0.1**5):
+    def __init__(self, family, lambdas, alpha, max_iter=10, tol=0.1**2):
         # TODO: Check that lambdas is in decreasing order.
         # TODO: Check that alpha is between zero and one.
         self.family = family
@@ -345,18 +345,42 @@ class GLMNet:
 
     def fit(self, X, y):
         self._enets = []
+        n_coef = X.shape[0]
         working_response = self.family.initial_working_response(y)
         working_weights = self.family.initial_working_weights(y)
+        previous_coefs = np.zeros(shape=X.shape[1])
         for i, lam in enumerate(self.lambdas):
-            enet = ElasticNet(lam=lam, alpha=self.alpha)
-            if i == 0:
-                enet.fit(X, working_response, sample_weights=working_weights)
-            else:
-                enet.fit(X, working_response, sample_weights=working_weights,
-                         warm_start=self._enets[-1])
-            working_response, working_weights = (
-                self.make_working_response_and_weights(X, y, enet))
-            self._enets.append(enet)
+            n_iter = 0
+            inner_enets = []
+            while n_iter < self.max_iter:
+                enet = ElasticNet(lam=lam, alpha=self.alpha)
+                # Case: First quadratic approximation for the first lambda.
+                if i == 0 and n_iter == 0:
+                    enet.fit(
+                        X, working_response, sample_weights=working_weights)
+                # Case: First quadratic approximation for subsequent lambdas.
+                elif n_iter == 0:
+                    enet.fit(
+                        X, working_response, working_weights, 
+                        warm_start=self._enets[-1][-1])
+                # Case: Subsequent quadratic approximations for subsequent
+                # lambdas.
+                else:
+                    enet.fit(
+                        X, working_response,sample_weights=working_weights,
+                        warm_start=inner_enets[-1])
+                inner_enets.append(enet)
+                working_response, working_weights = (
+                    self.make_working_response_and_weights(X, y, enet))
+                # Check if the inner loop of quadratic approximations has
+                # converged.
+                if np.allclose(previous_coefs, enet.coef_, rtol=self.tol):
+                    previous_coefs[:] = enet.coef_
+                    break
+                previous_coefs[:] = enet.coef_
+                n_iter += 1
+            self._enets.append(inner_enets)
+        return self
 
     def make_working_response_and_weights(self, X, y, enet):
         nu = enet.predict(X)
