@@ -9,8 +9,8 @@
 `py-glm` supports models from various exponential families:
 
 ```python
-from glm import GLM
-from families import Gaussian, Bernoulli, Poisson, Exponential
+from glm.glm import GLM
+from glm.families import Gaussian, Bernoulli, Poisson, Exponential
 
 linear_model = GLM(family=Gaussian())
 logistic_model = GLM(family=Bernoulli())
@@ -22,7 +22,7 @@ Models with dispersion parameters are also supported.  The dispersion parameters
 in these models is estimated using the deviance.
 
 ```python
-from families import QuasiPoisson, Gamma
+from glm.families import QuasiPoisson, Gamma
 
 quasi_poisson_model = GLM(family=QuasiPoisson())
 gamma_model = GLM(family=Gamma())
@@ -61,7 +61,7 @@ logistic_model.coef_standard_error_
 Resampling methods are also supported: the parametric and non-parametric bootstraps:
 
 ```python
-from simulation import Simulation
+from glm.simulation import Simulation
 
 sim = Simulation(logistic_model)
 sim.parametric_bootstrap(X, n_sim=1000)
