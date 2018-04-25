@@ -55,7 +55,7 @@ Predictions are also made in sklearn style:
 logistic_model.predict(X)
 ```
 
-*Note:* There is one major place we deviate from the sklearn interface.  The `predict` method on a `GLM` object *always* returns an estimate of the conditional expectation `E[y | X]`.  This is in contrast to sklearn behavior for classification models, where it returns aclass assignment.  We make this choice so that the `py-glm` library is consistent with its use of `predict`.  If the user would like class assignments from a classifier, they will need to threshold the probability returned by `predict`.
+**Note:** There is one major place we deviate from the sklearn interface.  The `predict` method on a `GLM` object **always** returns an estimate of the conditional expectation `E[y | X]`.  This is in contrast to sklearn behavior for classification models, where it returns aclass assignment.  We make this choice so that the `py-glm` library is consistent with its use of `predict`.  If the user would like class assignments from a classifier, they will need to threshold the probability returned by `predict`.
 
 
 ### Inference
@@ -93,4 +93,4 @@ logistic_model.fit(X, y_logistic, alpha=1.0)
 
 ## Warning
 
-The `glmnet` code included in `glm.glmnet` is *experimental*.  Please use at your own risk.
+The `glmnet` code included in `glm.glmnet` is **experimental**.  Please use at your own risk.
