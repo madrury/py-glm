@@ -1,4 +1,19 @@
 import numpy as np
+import pandas as pd
+
+
+def check_types(X, y, formula):
+    if not formula:
+        if not isinstance(X, np.ndarray):
+            raise TypeError(f"X must be a numpy array if no formula is supplied, "
+                                "got a {type(X)}")
+        if not isinstance(y, np.ndarray):
+            raise TypeError(f"y must be a numpy array if no formula is supplied, "
+                                "got a {type(y)}")
+    if formula:
+        if not isinstance(X, pd.DataFrame):
+            raise TypeError(f"X must be a DataFrame if a formula is supplied, "
+                                "got a {type(X)}")
 
 def is_commensurate(X, y):
     return X.shape[0] == y.shape[0]

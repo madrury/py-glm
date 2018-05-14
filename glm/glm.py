@@ -1,6 +1,9 @@
 import numpy as np
-from .utils import (check_commensurate, check_intercept, check_offset,
-                   check_sample_weights, has_converged)
+import pandas as pd
+import patsy as pt
+
+from .utils import (check_types, check_commensurate, check_intercept,
+                    check_offset, check_sample_weights, has_converged)
 
 
 class GLM:
@@ -71,25 +74,30 @@ class GLM:
     def __init__(self, family, alpha=0.0):
         self.family = family
         self.alpha = alpha
+        self.formula = None
         self.coef_ = None 
         self.deviance_ = None
         self.n = None
         self.p = None
         self.information_matrix_ = None
 
-    def fit(self, X, y, warm_start=None, offset=None, sample_weights=None,
-                        max_iter=100, tol=0.1**5):
+    def fit(self, X, y=None, formula=None, **kwargs):
         """Fit the GLM model to training data.
 
         Fitting the model uses the well known Fisher scoring algorithm.
 
         Parameters
         ----------
-        X: array, shape (n_samples, n_features)
+        X: array, shape (n_samples, n_features) or pd.DataFrame
             Training data.
 
         y: array, shape (n_samples, )
             Target values.
+
+        formula: str
+            A formula specifying the model.  Used in the case that X is passed
+            as a DataFrame.  For documentation on model formulas, please see
+            the patsy library documentation.
 
         warm_start: array, shape (n_features, )
             Initial values to use for the parameter estimates in the
@@ -121,6 +129,25 @@ class GLM:
         -------
         self: GLM object
             The fit model.
+        """
+        check_types(X, y, formula) 
+        if formula:
+            self.formula = formula
+            y_array, X_array = pt.dmatrices(formula, X)
+            y_array = y_array.squeeze()
+            return self._fit(X_array, y_array, **kwargs)
+        else:
+            return self._fit(X, y, **kwargs)
+
+    def _fit(self, X, y, *,
+             warm_start=None, 
+             offset=None, 
+             sample_weights=None,
+             max_iter=100, 
+             tol=0.1**5):
+        """Fit the GLM model to some training data.
+
+        This method expects X and y to be numpy arrays.
         """
         check_commensurate(X, y)
         check_intercept(X)
