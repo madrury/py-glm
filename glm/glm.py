@@ -291,6 +291,21 @@ class GLM:
     def coef_standard_error_(self):
         return np.sqrt(np.diag(self.coef_covariance_matrix_))
 
+    def summary(self):
+        """Print a summary of the model."""
+        variable_names = self.X_names
+        parameter_estimates = self.coef_
+        standard_errors = self.coef_standard_error_
+        header_string = "{:<10} {:>20} {:>15}".format(
+            "Name", "Parameter Estimate", "Standard Error")
+        print(f"{self.family.__class__.__name__} GLM Model Summary.")
+        print('='*len(header_string))
+        print(header_string)
+        print('-'*len(header_string))
+        format_string = "{:<20} {:>10.2f} {:>15.2f}"
+        for name, est, se in zip(variable_names, parameter_estimates, standard_errors):
+            print(format_string.format(name, est, se))
+
     def clone(self):
         return self.__class__(self.family, self.alpha)
 
