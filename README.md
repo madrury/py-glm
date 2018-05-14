@@ -42,6 +42,12 @@ Fitting a model proceeds in `sklearn` style, and uses the Fisher scoring algorit
 logistic_model.fit(X, y_logistic)
 ```
 
+If your data resides in a `pandas.DataFrame`, you can pass this to `fit` along with a model formula.
+
+```
+logistic_model.fit(X, formula="y ~ Moshi + SwimSwim")
+```
+
 Offsets and sample weights are supported when fitting:
 
 ```python
@@ -68,7 +74,22 @@ logistic_model.coef_covariance_matrix_
 logistic_model.coef_standard_error_
 ```
 
-Re-sampling methods are also supported: the parametric and non-parametric bootstraps:
+To get a quick summary, use the `summary` method:
+
+```
+logistic_model.summary()
+
+Binomial GLM Model Summary.
+===============================================
+Name         Parameter Estimate  Standard Error
+-----------------------------------------------
+Intercept                  1.02            0.01
+Moshi                     -2.00            0.02
+SwimSwim                   1.00            0.02
+```
+
+Re-sampling methods are also supported in the `simulation` subpackage: the
+parametric and non-parametric bootstraps:
 
 ```python
 from glm.simulation import Simulation
