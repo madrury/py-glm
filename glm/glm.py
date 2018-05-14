@@ -3,7 +3,8 @@ import pandas as pd
 import patsy as pt
 
 from .utils import (check_types, check_commensurate, check_intercept,
-                    check_offset, check_sample_weights, has_converged)
+                    check_offset, check_sample_weights, has_converged,
+                    default_X_names, default_y_name)
 
 
 class GLM:
@@ -48,6 +49,17 @@ class GLM:
     alpha: float, non-negative
         The regularization strength.
 
+    formula: str
+        An (optional) formula specifying the model.  Used in the case that X is
+        passed as a DataFrame.  For documentation on model formulas, please see
+        the patsy library documentation.
+
+    X_names: List[str]
+        Names for the predictors.
+
+    y_names: str
+        Name for the target varaible.
+
     coef_: array, shape (n_features, )
         The fit parameter estimates.  None if the model has not yet been fit.
 
@@ -75,13 +87,18 @@ class GLM:
         self.family = family
         self.alpha = alpha
         self.formula = None
+        self.X_names = None
+        self.y_name = None
         self.coef_ = None 
         self.deviance_ = None
         self.n = None
         self.p = None
         self.information_matrix_ = None
 
-    def fit(self, X, y=None, formula=None, **kwargs):
+    def fit(self, X, y=None, formula=None, *, 
+            X_names=None,
+            y_name=None,
+            **kwargs):
         """Fit the GLM model to training data.
 
         Fitting the model uses the well known Fisher scoring algorithm.
@@ -134,9 +151,19 @@ class GLM:
         if formula:
             self.formula = formula
             y_array, X_array = pt.dmatrices(formula, X)
+            self.X_names = X_array.design_info.term_names
+            self.y_name = y_array.design_info.term_names[0]
             y_array = y_array.squeeze()
             return self._fit(X_array, y_array, **kwargs)
         else:
+            if X_names:
+                self.X_names = X_names
+            else:
+                self.X_names = default_X_names(X)
+            if y_name:
+                self.y_name = y_names
+            else:
+                self.y_name = default_y_name()
             return self._fit(X, y, **kwargs)
 
     def _fit(self, X, y, *,

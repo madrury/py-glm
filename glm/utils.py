@@ -46,6 +46,13 @@ def has_converged(loss, loss_prev, tol):
     rel_change = np.abs((loss - loss_prev) / loss_prev)
     return rel_change < tol
 
+def default_X_names(X):
+    n = X.shape[1]
+    return ["Intercept"] + [f"X{i}" for i in range(1, n)]
+
+def default_y_name():
+    return "y"
+
 def soft_threshold(z, gamma):
     abs_z = np.abs(z)
     if gamma >= abs_z:
