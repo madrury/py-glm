@@ -1,10 +1,11 @@
 import numpy as np
-import pandas as pd
+import scipy.stats as sts
 import patsy as pt
 
 from .utils import (check_types, check_commensurate, check_intercept,
                     check_offset, check_sample_weights, has_converged,
                     default_X_names, default_y_name)
+from .families import Gaussian
 
 
 class GLM:
@@ -290,6 +291,22 @@ class GLM:
     @property
     def coef_standard_error_(self):
         return np.sqrt(np.diag(self.coef_covariance_matrix_))
+
+    @property
+    def p_values_(self):
+        """Return an array of p-values for the fit coefficients.  These
+        p-values test the hypothesis that the given parameter is zero.
+        
+        Note: We use the asymptotic normal approximation to the p-values for
+        all models.
+        """
+        p_values = []
+        null_dist = sts.norm(loc=0.0, scale=1.0)
+        for coef, std_err in zip(self.coef_, self.coef_standard_error_):
+            z = abs(coef) / std_err
+            p_value = null_dist.cdf(-z) + (1 - null_dist.cdf(z))
+            p_values.append(p_value)
+        return np.asarray(p_values)
 
     def summary(self):
         """Print a summary of the model."""
