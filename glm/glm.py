@@ -300,6 +300,9 @@ class GLM:
         Note: We use the asymptotic normal approximation to the p-values for
         all models.
         """
+        if self.alpha != 0:
+            raise ValueError("P-values are not available for "
+                             "regularized model.")
         p_values = []
         null_dist = sts.norm(loc=0.0, scale=1.0)
         for coef, std_err in zip(self.coef_, self.coef_standard_error_):
