@@ -32,5 +32,5 @@ setup(
     ],
     keywords='statistics',
     packages=['glm'],
-    install_requires=['numpy', 'patsy'],
+    install_requires=['numpy', 'scipy', 'patsy'],
 )
