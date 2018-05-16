@@ -55,6 +55,10 @@ class GLM:
         passed as a DataFrame.  For documentation on model formulas, please see
         the patsy library documentation.
 
+    X_info: patsy.design_info.DesignInfo object.
+        Contains information about the model formula used to process the
+        training data frame into a design matrix.
+
     X_names: List[str]
         Names for the predictors.
 
@@ -307,7 +311,7 @@ class GLM:
         """
         if self.alpha != 0:
             raise ValueError("P-values are not available for "
-                             "regularized model.")
+                             "regularized models.")
         p_values = []
         null_dist = sts.norm(loc=0.0, scale=1.0)
         for coef, std_err in zip(self.coef_, self.coef_standard_error_):
