@@ -88,6 +88,7 @@ class GLM:
         self.family = family
         self.alpha = alpha
         self.formula = None
+        self.X_info = None
         self.X_names = None
         self.y_name = None
         self.coef_ = None 
@@ -152,7 +153,8 @@ class GLM:
         if formula:
             self.formula = formula
             y_array, X_array = pt.dmatrices(formula, X)
-            self.X_names = X_array.design_info.term_names
+            self.X_info = X_array.design_info
+            self.X_names = X_array.design_info.column_names
             self.y_name = y_array.design_info.term_names[0]
             y_array = y_array.squeeze()
             return self._fit(X_array, y_array, **kwargs)
@@ -247,6 +249,9 @@ class GLM:
         if not self._is_fit():
             raise ValueError(
                 "Model is not fit, and cannot be used to make predictions.")
+        if self.formula:
+            rhs_formula = '+'.join(self.X_info.term_names[1:])
+            X = pt.dmatrix(rhs_formula, X)
         if offset is None:
             return self.family.inv_link(np.dot(X, self.coef_))
         else:
