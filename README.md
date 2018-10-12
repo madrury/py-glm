@@ -27,7 +27,7 @@ exponential_model = GLM(family=Exponential())
 ```
 
 Models with dispersion parameters are also supported.  The dispersion parameters
-in these models is estimated using the deviance.
+in these models are estimated using the deviance.
 
 ```python
 from glm.families import QuasiPoisson, Gamma
@@ -61,17 +61,18 @@ Predictions are also made in sklearn style:
 logistic_model.predict(X)
 ```
 
-**Note:** There is one major place we deviate from the sklearn interface.  The `predict` method on a `GLM` object **always** returns an estimate of the conditional expectation `E[y | X]`.  This is in contrast to sklearn behavior for classification models, where it returns aclass assignment.  We make this choice so that the `py-glm` library is consistent with its use of `predict`.  If the user would like class assignments from a classifier, they will need to threshold the probability returned by `predict`.
+**Note:** There is one major place we deviate from the sklearn interface.  The `predict` method on a `GLM` object **always** returns an estimate of the conditional expectation `E[y | X]`.  This is in contrast to sklearn behavior for classification models, where it returns a class assignment.  We make this choice so that the `py-glm` library is consistent with its use of `predict`.  If the user would like class assignments from a model, they will need to threshold the probability returned by `predict` manually.
 
 
 ### Inference
 
-Once the model is fit, parameter estimates and parameter covariance estimates are available:
+Once the model is fit, parameter estimates, parameter covariance estimates, and p-values from a standard z-test are available:
 
 ```python
 logistic_model.coef_
 logistic_model.coef_covariance_matrix_
 logistic_model.coef_standard_error_
+logistic_model.p_values_
 ```
 
 To get a quick summary, use the `summary` method:
