@@ -5,7 +5,6 @@ import patsy as pt
 from .utils import (check_types, check_commensurate, check_intercept,
                     check_offset, check_sample_weights, has_converged,
                     default_X_names, default_y_name)
-from .families import Gaussian
 
 
 class GLM:
@@ -21,7 +20,7 @@ class GLM:
     Here beta are the parameters fit in the model, with X * beta a matrix
     multiplication just like in linear regression.  Above, theta is a
     *parameter* of the one parameter family of distributions dist.
-    
+
     In this implementation, a specific GLM is specified with a *family* object
     of ExponentialFamily type, which contains the information about the
     conditional distribution of y, and its connection to X, needed to construct
@@ -95,13 +94,13 @@ class GLM:
         self.X_info = None
         self.X_names = None
         self.y_name = None
-        self.coef_ = None 
+        self.coef_ = None
         self.deviance_ = None
         self.n = None
         self.p = None
         self.information_matrix_ = None
 
-    def fit(self, X, y=None, formula=None, *, 
+    def fit(self, X, y=None, formula=None, *,
             X_names=None,
             y_name=None,
             **kwargs):
@@ -148,12 +147,16 @@ class GLM:
             change in deviance is compared to this tolerance to check for
             convergence.
 
+        check_intercept: bool
+            Should we defensively check that the first column in the deign
+            matrix is an intercept? Defaults to True.
+
         Returns
         -------
         self: GLM object
             The fit model.
         """
-        check_types(X, y, formula) 
+        check_types(X, y, formula)
         if formula:
             self.formula = formula
             y_array, X_array = pt.dmatrices(formula, X)
@@ -174,17 +177,19 @@ class GLM:
             return self._fit(X, y, **kwargs)
 
     def _fit(self, X, y, *,
-             warm_start=None, 
-             offset=None, 
+             warm_start=None,
+             offset=None,
              sample_weights=None,
-             max_iter=100, 
-             tol=0.1**5):
+             max_iter=100,
+             tol=0.1**5,
+             validate_intercept=True):
         """Fit the GLM model to some training data.
 
         This method expects X and y to be numpy arrays.
         """
         check_commensurate(X, y)
-        check_intercept(X)
+        if validate_intercept:
+            check_intercept(X)
         if warm_start is None:
             initial_intercept = np.mean(y)
             warm_start = np.zeros(X.shape[1])
@@ -206,7 +211,7 @@ class GLM:
             mu = family.inv_link(nu)
             dmu = family.d_inv_link(nu, mu)
             var = family.variance(mu)
-            dbeta = self._compute_dbeta(X, y, mu, dmu, var, sample_weights)           
+            dbeta = self._compute_dbeta(X, y, mu, dmu, var, sample_weights)
             ddbeta = self._compute_ddbeta(X, dmu, var, sample_weights)
             if self._is_regularized():
                 dbeta = dbeta + self._d_penalty(coef)
@@ -305,7 +310,7 @@ class GLM:
     def p_values_(self):
         """Return an array of p-values for the fit coefficients.  These
         p-values test the hypothesis that the given parameter is zero.
-        
+
         Note: We use the asymptotic normal approximation to the p-values for
         all models.
         """
