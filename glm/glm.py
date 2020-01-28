@@ -333,10 +333,11 @@ class GLM:
         header_string = "{:<10} {:>20} {:>15}".format(
             "Name", "Parameter Estimate", "Standard Error")
         print(f"{self.family.__class__.__name__} GLM Model Summary.")
-        print('='*len(header_string))
+        print('=' * len(header_string))
         print(header_string)
-        print('-'*len(header_string))
-        format_string = "{:<20} {:>10.2f} {:>15.2f}"
+        print('-' * len(header_string))
+        longest_var_name_length = max(len(name) + 2 for name in variable_names)
+        format_string = "{:<" + str(longest_var_name_length) + "} {:>10.2f} {:>15.2f}"
         for name, est, se in zip(variable_names, parameter_estimates, standard_errors):
             print(format_string.format(name, est, se))
 
