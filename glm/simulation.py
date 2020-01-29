@@ -1,4 +1,5 @@
 import numpy as np
+import patsy as pt
 
 
 class Simulation:
@@ -30,7 +31,7 @@ class Simulation:
             Data.
 
         n_sim: positive integer
-            The number of times to sample from the coditional distributions 
+            The number of times to sample from the coditional distributions
             y | X.
 
         offset: array, shape (n_samples, )
@@ -63,7 +64,7 @@ class Simulation:
             Data.
 
         n_sim: positive integer
-            The number of times to sample from the coditional distributions 
+            The number of times to sample from the coditional distributions
             y | X.
 
         offset: array, shape (n_samples, )
@@ -76,6 +77,8 @@ class Simulation:
         models:
             The list of fit models.
         """
+        if self.glm.formula:
+            X = self.glm._make_rhs_matrix(X)
         simulations = self.sample(X, n_sim, offset=offset)
         models = []
         for i in range(n_sim):
@@ -84,7 +87,7 @@ class Simulation:
             models.append(model)
         return models
 
-    def non_parametric_bootstrap(self, X, y, n_sim=100, offset=None):
+    def non_parametric_bootstrap(self, X, y=None, n_sim=100, offset=None):
         """Fit models to non-parameteric bootstrap samples.
 
         The non-parametric operates by sampling data with replacement from the
@@ -115,12 +118,16 @@ class Simulation:
         models = []
         for _ in range(n_sim):
             idxs = np.random.choice(X.shape[0], X.shape[0])
-            X_boot, y_boot = X[idxs], y[idxs]
             if offset:
                 offset_boot = offset_boot[idxs]
             else:
                 offset_boot = None
             model = self.glm.clone()
-            model.fit(X_boot, y_boot, offset=offset_boot)
+            if self.glm.formula:
+                X_boot = X.iloc[idxs]
+                model.fit(X_boot, formula=self.glm.formula, offset=offset_boot)
+            else:
+                X_boot, y_boot = X[idxs], y[idxs]
+                model.fit(X_boot, y_boot, offset=offset_boot)
             models.append(model)
         return models
