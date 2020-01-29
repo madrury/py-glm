@@ -147,7 +147,7 @@ class GLM:
             change in deviance is compared to this tolerance to check for
             convergence.
 
-        check_intercept: bool
+        validate_intercept: bool
             Should we defensively check that the first column in the deign
             matrix is an intercept? Defaults to True.
 
@@ -259,8 +259,7 @@ class GLM:
             raise ValueError(
                 "Model is not fit, and cannot be used to make predictions.")
         if self.formula:
-            rhs_formula = '+'.join(self.X_info.term_names[1:])
-            X = pt.dmatrix(rhs_formula, X)
+            X = self._make_rhs_matrix(X)
         if offset is None:
             return self.family.inv_link(np.dot(X, self.coef_))
         else:
@@ -367,3 +366,8 @@ class GLM:
         diag_idxs = list(range(1, X.shape[1]))
         ddbeta[diag_idxs, diag_idxs] += self.alpha
         return ddbeta
+
+    def _make_rhs_matrix(self, X):
+        rhs_formula = '+'.join(self.X_info.term_names[1:])
+        X = pt.dmatrix(rhs_formula, X)
+        return X
