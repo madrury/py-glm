@@ -368,6 +368,13 @@ class GLM:
         return ddbeta
 
     def _make_rhs_matrix(self, X):
-        rhs_formula = '+'.join(self.X_info.term_names[1:])
+        formula_parts = self.formula.split('~')
+        if len(formula_parts) == 2:
+            rhs_formula = formula_parts[1].strip()
+        elif len(formula_parts) == 1:
+            rhs_formula = formula_parts.strip()
+        else:
+            raise ValueError(
+                f"Cannot parse model formula {self.formula} to determine right hand side!")
         X = pt.dmatrix(rhs_formula, X)
         return X
