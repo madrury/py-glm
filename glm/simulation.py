@@ -50,7 +50,7 @@ class Simulation:
             simulations[i, :] = self.glm.family.sample(preds, self.glm.dispersion_)
         return simulations
 
-    def parametric_bootstrap(self, X, n_sim=100, offset=None):
+    def parametric_bootstrap(self, X, n_sim=100, offset=None, validate_intercept=True):
         """Fit models to parameteric bootstrap samples.
 
         The parametric operates by sampling data from the conditional
@@ -83,7 +83,7 @@ class Simulation:
         models = []
         for i in range(n_sim):
             model = self.glm.clone()
-            model.fit(X, simulations[i, :], offset=offset)
+            model.fit(X, simulations[i, :], offset=offset, validate_intercept=validate_intercept)
             models.append(model)
         return models
 
@@ -125,7 +125,7 @@ class Simulation:
             model = self.glm.clone()
             if self.glm.formula:
                 X_boot = X.iloc[idxs]
-                model.fit(X_boot, formula=self.glm.formula, offset=offset_boot)
+                model.fit(X_boot, formula=self.glm.formula, offset=offset_boot, validate_intercept=False)
             else:
                 X_boot, y_boot = X[idxs], y[idxs]
                 model.fit(X_boot, y_boot, offset=offset_boot)
