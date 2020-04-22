@@ -330,7 +330,7 @@ class GLM:
         parameter_estimates = self.coef_
         standard_errors = self.coef_standard_error_
         longest_var_name_length = max(len(name) + 2 for name in variable_names)
-        header_string = "{:<" + str(longest_var_name_length + 2) + "{:>10} {:>15}".format(
+        header_string = "{:<" + str(longest_var_name_length + 2) + "} {:>10} {:>15}".format(
             "Name", "Parameter Estimate", "Standard Error")
         print(f"{self.family.__class__.__name__} GLM Model Summary.")
         print('=' * len(header_string))
