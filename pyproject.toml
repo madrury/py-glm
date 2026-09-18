@@ -1,0 +1,20 @@
+[project]
+name = "py-glm"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+
+dependencies = [
+    "numpy==2.5.3",
+    "packaging==26.3",
+    "patsy==1.0.3",
+    "scipy==1.18.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "jupyter",
+    "matplotlib"
+]
