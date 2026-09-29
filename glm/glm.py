@@ -1,9 +1,9 @@
-from typing import Any, Self
+from typing import Self
 
+import formulaic
 import numpy as np
 import pandas as pd
 import scipy.stats as sts
-import patsy as pt
 
 from glm.families import ExponentialFamily
 from glm.types import (
@@ -13,6 +13,7 @@ from glm.types import (
     DevianceGradient,
     DesignFrame,
     DesignMatrix,
+    DesignSpec,
     Formula,
     InformationMatrix,
     MeanVector,
@@ -79,11 +80,12 @@ class GLM:
     formula: str
         An (optional) formula specifying the model.  Used in the case that X is
         passed as a DataFrame.  For documentation on model formulas, please see
-        the patsy library documentation.
+        the formulaic library documentation.
 
-    X_info: patsy.design_info.DesignInfo object.
-        Contains information about the model formula used to process the
-        training data frame into a design matrix.
+    X_spec: formulaic.ModelSpec
+        The learned mapping from a data frame to the design matrix, including
+        categorical levels and stateful transforms fit on the training data.
+        Used to encode new data consistently when making predictions.
 
     X_names: List[str]
         Names for the predictors.
@@ -119,7 +121,7 @@ class GLM:
         self.family = family
         self.alpha = alpha
         self.formula: Formula | None = None
-        self.X_info: Any = None
+        self.X_spec: DesignSpec | None = None
         self.X_names: list[str] | None = None
         self.y_name: str | None = None
         self.coef_: CoefficientVector | None = None
@@ -158,7 +160,7 @@ class GLM:
         formula: str
             A formula specifying the model.  Used in the case that X is passed
             as a DataFrame.  For documentation on model formulas, please see
-            the patsy library documentation.
+            the formulaic library documentation.
 
         warm_start: array, shape (n_features, )
             Initial values to use for the parameter estimates in the
@@ -201,13 +203,17 @@ class GLM:
                     f"X must be a DataFrame if a formula is "
                     f"supplied, got a {type(X)}"
                 )
+            matrices = formulaic.model_matrix(formula, X, output="numpy")
+            if not isinstance(matrices, formulaic.ModelMatrices):
+                raise ValueError(
+                    f"Formula {formula!r} must specify a response, e.g. 'y ~ x'."
+                )
             self.formula = formula
-            y_frame, X_frame = pt.dmatrices(formula, X)
-            self.X_info = X_frame.design_info
-            self.X_names = X_frame.design_info.column_names
-            self.y_name = y_frame.design_info.term_names[0]
-            design_matrix: DesignMatrix = np.asarray(X_frame)
-            response: ResponseVector = np.asarray(y_frame).squeeze()
+            self.X_spec = matrices.rhs.model_spec
+            self.X_names = list(matrices.rhs.model_spec.column_names)
+            self.y_name = matrices.lhs.model_spec.column_names[0]
+            design_matrix: DesignMatrix = np.asarray(matrices.rhs)
+            response: ResponseVector = np.asarray(matrices.lhs).squeeze(axis=1)
         else:
             if not isinstance(X, np.ndarray):
                 raise TypeError(
@@ -333,7 +339,7 @@ class GLM:
             raise ValueError(
                 "Model is not fit, and cannot be used to make predictions."
             )
-        if self.formula:
+        if self.X_spec is not None:
             if not isinstance(X, pd.DataFrame):
                 raise TypeError(
                     f"X must be a DataFrame for a model fit with a "
@@ -470,16 +476,9 @@ class GLM:
         return ddβ
 
     def _make_rhs_matrix(self, X: DesignFrame) -> DesignMatrix:
-        if self.formula is None:
+        if self.X_spec is None:
             raise ValueError("Model was not fit with a formula.")
-        formula_parts = self.formula.split("~")
-        if len(formula_parts) == 2:
-            rhs_formula = formula_parts[1].strip()
-        elif len(formula_parts) == 1:
-            rhs_formula = formula_parts[0].strip()
-        else:
-            raise ValueError(
-                f"Cannot parse model formula {self.formula} to determine right hand side!"
-            )
-        design_matrix: DesignMatrix = pt.dmatrix(rhs_formula, X)
+        design_matrix: DesignMatrix = np.asarray(
+            self.X_spec.get_model_matrix(X, output="numpy")
+        )
         return design_matrix

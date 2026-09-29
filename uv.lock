@@ -1990,9 +1990,9 @@ name = "py-glm"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "formulaic" },
     { name = "numpy" },
     { name = "pandas" },
-    { name = "patsy" },
     { name = "scipy" },
 ]
 
@@ -2011,9 +2011,9 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "formulaic", specifier = ">=1.1" },
     { name = "numpy", specifier = ">=2.1" },
     { name = "pandas", specifier = ">=2.2.3" },
-    { name = "patsy", specifier = ">=1.0" },
     { name = "scipy", specifier = ">=1.14.1" },
 ]
 

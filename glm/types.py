@@ -6,6 +6,7 @@ of coefficients in the model (including the intercept).
 
 from typing import Any
 
+import formulaic
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
@@ -19,6 +20,11 @@ type DesignFrame = pd.DataFrame
 
 type Formula = str
 """A model formula, e.g. "y ~ x1 + x2"."""
+
+type DesignSpec = formulaic.ModelSpec
+"""The learned mapping from a DesignFrame to a DesignMatrix. Captures state fit
+on the training data, such as categorical levels and centering constants, so
+new data is encoded consistently."""
 
 type ResponseVector = npt.NDArray[np.floating[Any] | np.integer[Any]]
 """The observed response y, shape (n,). May be integer valued, e.g. counts or

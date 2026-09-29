@@ -1,5 +1,4 @@
 import numpy as np
-import patsy as pt
 
 
 class Simulation:
