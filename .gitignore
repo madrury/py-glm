@@ -1,4 +1,13 @@
-.ipynb_checkpoints
+# Python
+__pycache__/
+*.egg-info/
+build/
+dist/
+
+# Environments
+.venv/
+
+# Tooling
+.pytest_cache/
+.ipynb_checkpoints/
 *.swp
-*/__pycache__
-py_glm.egg-info
