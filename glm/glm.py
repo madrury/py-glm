@@ -5,15 +5,33 @@ import pandas as pd
 import scipy.stats as sts
 import patsy as pt
 
-from .families import ExponentialFamily
-from .types import (CoefficientVector, CovarianceMatrix, Deviance,
-                    DevianceGradient, DesignFrame, DesignMatrix, Formula,
-                    InformationMatrix, MeanVector, Offset, PValueVector,
-                    ResponseVector, SampleWeights, StandardErrorVector,
-                    VarianceVector)
-from .utils import (check_commensurate, check_intercept,
-                    check_offset, check_sample_weights, has_converged,
-                    default_X_names, default_y_name)
+from glm.families import ExponentialFamily
+from glm.types import (
+    CoefficientVector,
+    CovarianceMatrix,
+    Deviance,
+    DevianceGradient,
+    DesignFrame,
+    DesignMatrix,
+    Formula,
+    InformationMatrix,
+    MeanVector,
+    Offset,
+    PValueVector,
+    ResponseVector,
+    SampleWeights,
+    StandardErrorVector,
+    VarianceVector,
+)
+from glm.utils import (
+    check_commensurate,
+    check_intercept,
+    check_offset,
+    check_sample_weights,
+    has_converged,
+    default_X_names,
+    default_y_name,
+)
 
 
 class GLM:
@@ -96,6 +114,7 @@ class GLM:
     the programmer has included a column of ones as the *first* column X. The
     fit method will throw an exception if this is not the case.
     """
+
     def __init__(self, family: ExponentialFamily, alpha: float = 0.0) -> None:
         self.family = family
         self.alpha = alpha
@@ -109,17 +128,21 @@ class GLM:
         self.p: int | None = None
         self.information_matrix_: InformationMatrix | None = None
 
-    def fit(self, X: DesignMatrix | DesignFrame,
-            y: ResponseVector | None = None,
-            formula: Formula | None = None, *,
-            X_names: list[str] | None = None,
-            y_name: str | None = None,
-            warm_start: CoefficientVector | None = None,
-            offset: Offset | None = None,
-            sample_weights: SampleWeights | None = None,
-            max_iter: int = 100,
-            tol: float = 0.1**5,
-            validate_intercept: bool = True) -> Self:
+    def fit(
+        self,
+        X: DesignMatrix | DesignFrame,
+        y: ResponseVector | None = None,
+        formula: Formula | None = None,
+        *,
+        X_names: list[str] | None = None,
+        y_name: str | None = None,
+        warm_start: CoefficientVector | None = None,
+        offset: Offset | None = None,
+        sample_weights: SampleWeights | None = None,
+        max_iter: int = 100,
+        tol: float = 0.1**5,
+        validate_intercept: bool = True,
+    ) -> Self:
         """Fit the GLM model to training data.
 
         Fitting the model uses the well known Fisher scoring algorithm.
@@ -174,8 +197,10 @@ class GLM:
         """
         if formula:
             if not isinstance(X, pd.DataFrame):
-                raise TypeError(f"X must be a DataFrame if a formula is "
-                                f"supplied, got a {type(X)}")
+                raise TypeError(
+                    f"X must be a DataFrame if a formula is "
+                    f"supplied, got a {type(X)}"
+                )
             self.formula = formula
             y_frame, X_frame = pt.dmatrices(formula, X)
             self.X_info = X_frame.design_info
@@ -185,11 +210,15 @@ class GLM:
             response: ResponseVector = np.asarray(y_frame).squeeze()
         else:
             if not isinstance(X, np.ndarray):
-                raise TypeError(f"X must be a numpy array if no formula is "
-                                f"supplied, got a {type(X)}")
+                raise TypeError(
+                    f"X must be a numpy array if no formula is "
+                    f"supplied, got a {type(X)}"
+                )
             if not isinstance(y, np.ndarray):
-                raise TypeError(f"y must be a numpy array if no formula is "
-                                f"supplied, got a {type(y)}")
+                raise TypeError(
+                    f"y must be a numpy array if no formula is "
+                    f"supplied, got a {type(y)}"
+                )
             if X_names:
                 self.X_names = X_names
             else:
@@ -199,21 +228,29 @@ class GLM:
             else:
                 self.y_name = default_y_name()
             design_matrix, response = X, y
-        return self._fit(design_matrix, response,
-                         warm_start=warm_start,
-                         offset=offset,
-                         sample_weights=sample_weights,
-                         max_iter=max_iter,
-                         tol=tol,
-                         validate_intercept=validate_intercept)
+        return self._fit(
+            design_matrix,
+            response,
+            warm_start=warm_start,
+            offset=offset,
+            sample_weights=sample_weights,
+            max_iter=max_iter,
+            tol=tol,
+            validate_intercept=validate_intercept,
+        )
 
-    def _fit(self, X: DesignMatrix, y: ResponseVector, *,
-             warm_start: CoefficientVector | None,
-             offset: Offset | None,
-             sample_weights: SampleWeights | None,
-             max_iter: int,
-             tol: float,
-             validate_intercept: bool) -> Self:
+    def _fit(
+        self,
+        X: DesignMatrix,
+        y: ResponseVector,
+        *,
+        warm_start: CoefficientVector | None,
+        offset: Offset | None,
+        sample_weights: SampleWeights | None,
+        max_iter: int,
+        tol: float,
+        validate_intercept: bool,
+    ) -> Self:
         """Fit the GLM model to some training data.
 
         This method expects X and y to be numpy arrays.
@@ -253,10 +290,10 @@ class GLM:
                 ddβ = self._dd_penalty(ddβ, X)
             β = β - np.linalg.solve(ddβ, dβ)
             penalized_deviance_previous = penalized_deviance
-            penalized_deviance = family.penalized_deviance(
-                y, μ, self.alpha, β)
+            penalized_deviance = family.penalized_deviance(y, μ, self.alpha, β)
             is_converged = has_converged(
-                penalized_deviance, penalized_deviance_previous, tol)
+                penalized_deviance, penalized_deviance_previous, tol
+            )
             n_iter += 1
 
         self.coef_ = β
@@ -266,8 +303,9 @@ class GLM:
         self.information_matrix_ = self._compute_ddbeta(X, dμ, var, sample_weights)
         return self
 
-    def predict(self, X: DesignMatrix | DesignFrame,
-                offset: Offset | None = None) -> MeanVector:
+    def predict(
+        self, X: DesignMatrix | DesignFrame, offset: Offset | None = None
+    ) -> MeanVector:
         """Return predictions from a fit model.
 
         Predictions are computed using the inverse link function in the family
@@ -293,19 +331,21 @@ class GLM:
         """
         if self.coef_ is None:
             raise ValueError(
-                "Model is not fit, and cannot be used to make predictions.")
+                "Model is not fit, and cannot be used to make predictions."
+            )
         if self.formula:
             if not isinstance(X, pd.DataFrame):
-                raise TypeError(f"X must be a DataFrame for a model fit with a "
-                                f"formula, got a {type(X)}")
+                raise TypeError(
+                    f"X must be a DataFrame for a model fit with a "
+                    f"formula, got a {type(X)}"
+                )
             X = self._make_rhs_matrix(X)
         η = np.dot(X, self.coef_)
         if offset is not None:
             η = η + offset
         return self.family.inv_link(η)
 
-    def score(self, X: DesignMatrix | DesignFrame,
-              y: ResponseVector) -> Deviance:
+    def score(self, X: DesignMatrix | DesignFrame, y: ResponseVector) -> Deviance:
         """Return the deviance of a fit model on a given dataset.
 
         Parameters
@@ -327,8 +367,9 @@ class GLM:
     def dispersion_(self) -> float:
         """Return an estimate of the dispersion parameter phi."""
         if self.deviance_ is None or self.n is None or self.p is None:
-            raise ValueError("Dispersion parameter can only be estimated for a "
-                             "fit model.")
+            raise ValueError(
+                "Dispersion parameter can only be estimated for a " "fit model."
+            )
         if self.family.has_dispersion:
             return self.deviance_ / (self.n - self.p)
         else:
@@ -337,8 +378,9 @@ class GLM:
     @property
     def coef_covariance_matrix_(self) -> CovarianceMatrix:
         if self.information_matrix_ is None:
-            raise ValueError("Parameter covariances can only be estimated for a "
-                             "fit model.")
+            raise ValueError(
+                "Parameter covariances can only be estimated for a " "fit model."
+            )
         return self.dispersion_ * np.linalg.inv(self.information_matrix_)
 
     @property
@@ -354,8 +396,7 @@ class GLM:
         all models.
         """
         if self.alpha != 0:
-            raise ValueError("P-values are not available for "
-                             "regularized models.")
+            raise ValueError("P-values are not available for " "regularized models.")
         if self.coef_ is None:
             raise ValueError("P-values can only be computed for a fit model.")
         p_values = []
@@ -375,11 +416,13 @@ class GLM:
         standard_errors = self.coef_standard_error_
         longest_var_name_length = max(len(name) + 2 for name in variable_names)
         format_string = "{:<" + str(longest_var_name_length) + "} {:>20} {:>15}"
-        header_string = format_string.format("Name", "Parameter Estimate", "Standard Error")
+        header_string = format_string.format(
+            "Name", "Parameter Estimate", "Standard Error"
+        )
         print(f"{self.family.__class__.__name__} GLM Model Summary.")
-        print('=' * len(header_string))
+        print("=" * len(header_string))
         print(header_string)
-        print('-' * len(header_string))
+        print("-" * len(header_string))
         format_string = "{:<" + str(longest_var_name_length) + "} {:>20.2f} {:>15.2f}"
         for name, est, se in zip(variable_names, parameter_estimates, standard_errors):
             print(format_string.format(name, est, se))
@@ -393,15 +436,25 @@ class GLM:
     def _is_regularized(self) -> bool:
         return self.alpha > 0.0
 
-    def _compute_dbeta(self, X: DesignMatrix, y: ResponseVector,
-                       μ: MeanVector, dμ: MeanVector, var: VarianceVector,
-                       sample_weights: SampleWeights) -> DevianceGradient:
+    def _compute_dbeta(
+        self,
+        X: DesignMatrix,
+        y: ResponseVector,
+        μ: MeanVector,
+        dμ: MeanVector,
+        var: VarianceVector,
+        sample_weights: SampleWeights,
+    ) -> DevianceGradient:
         working_residuals = sample_weights * (y - μ) * (dμ / var)
-        return - np.sum(X * working_residuals.reshape(-1, 1), axis=0)
+        return -np.sum(X * working_residuals.reshape(-1, 1), axis=0)
 
-    def _compute_ddbeta(self, X: DesignMatrix, dμ: MeanVector,
-                        var: VarianceVector,
-                        sample_weights: SampleWeights) -> InformationMatrix:
+    def _compute_ddbeta(
+        self,
+        X: DesignMatrix,
+        dμ: MeanVector,
+        var: VarianceVector,
+        sample_weights: SampleWeights,
+    ) -> InformationMatrix:
         working_h_weights = (sample_weights * dμ**2 / var).reshape(-1, 1)
         information: InformationMatrix = X.T @ (X * working_h_weights)
         return information
@@ -411,8 +464,7 @@ class GLM:
         dβ_penalty[0] = 0.0
         return dβ_penalty
 
-    def _dd_penalty(self, ddβ: InformationMatrix,
-                    X: DesignMatrix) -> InformationMatrix:
+    def _dd_penalty(self, ddβ: InformationMatrix, X: DesignMatrix) -> InformationMatrix:
         diag_idxs = list(range(1, X.shape[1]))
         ddβ[diag_idxs, diag_idxs] += self.alpha
         return ddβ
@@ -420,13 +472,14 @@ class GLM:
     def _make_rhs_matrix(self, X: DesignFrame) -> DesignMatrix:
         if self.formula is None:
             raise ValueError("Model was not fit with a formula.")
-        formula_parts = self.formula.split('~')
+        formula_parts = self.formula.split("~")
         if len(formula_parts) == 2:
             rhs_formula = formula_parts[1].strip()
         elif len(formula_parts) == 1:
             rhs_formula = formula_parts[0].strip()
         else:
             raise ValueError(
-                f"Cannot parse model formula {self.formula} to determine right hand side!")
+                f"Cannot parse model formula {self.formula} to determine right hand side!"
+            )
         design_matrix: DesignMatrix = pt.dmatrix(rhs_formula, X)
         return design_matrix

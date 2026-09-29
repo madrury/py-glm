@@ -1,11 +1,19 @@
 """Exponential families for GLMs"""
+
 from abc import ABCMeta, abstractmethod
 from typing import ClassVar
 
 import numpy as np
 
-from .types import (CoefficientVector, Deviance, LinearPredictor, MeanVector,
-                    ResponseVector, SampleWeights, VarianceVector)
+from glm.types import (
+    CoefficientVector,
+    Deviance,
+    LinearPredictor,
+    MeanVector,
+    ResponseVector,
+    SampleWeights,
+    VarianceVector,
+)
 
 
 class ExponentialFamily(metaclass=ABCMeta):
@@ -35,6 +43,7 @@ class ExponentialFamily(metaclass=ABCMeta):
     has_dispersion:
         Whether the family has a dispersion parameter that must be estimated.
     """
+
     has_dispersion: ClassVar[bool]
 
     @abstractmethod
@@ -57,9 +66,10 @@ class ExponentialFamily(metaclass=ABCMeta):
     def sample(self, mu: MeanVector, dispersion: float) -> ResponseVector:
         pass
 
-    def penalized_deviance(self, y: ResponseVector, mu: MeanVector,
-                           alpha: float, coef: CoefficientVector) -> Deviance:
-        return self.deviance(y, mu) + alpha*float(np.sum(coef[1:]**2))
+    def penalized_deviance(
+        self, y: ResponseVector, mu: MeanVector, alpha: float, coef: CoefficientVector
+    ) -> Deviance:
+        return self.deviance(y, mu) + alpha * float(np.sum(coef[1:] ** 2))
 
 
 class Gaussian(ExponentialFamily):
@@ -71,6 +81,7 @@ class Gaussian(ExponentialFamily):
 
     Here, sigma is a nuisance parameter.
     """
+
     has_dispersion = True
 
     def inv_link(self, eta: LinearPredictor) -> MeanVector:
@@ -83,7 +94,7 @@ class Gaussian(ExponentialFamily):
         return np.ones(shape=mu.shape)
 
     def deviance(self, y: ResponseVector, mu: MeanVector) -> Deviance:
-        return float(np.sum((y - mu)**2))
+        return float(np.sum((y - mu) ** 2))
 
     def sample(self, mu: MeanVector, dispersion: float) -> ResponseVector:
         return np.random.normal(mu, np.sqrt(dispersion))
@@ -102,6 +113,7 @@ class Bernoulli(ExponentialFamily):
 
         y | X ~ Bernoulli(p = X beta)
     """
+
     has_dispersion = False
 
     def inv_link(self, eta: LinearPredictor) -> MeanVector:
@@ -114,7 +126,7 @@ class Bernoulli(ExponentialFamily):
         return mu * (1 - mu)
 
     def deviance(self, y: ResponseVector, mu: MeanVector) -> Deviance:
-        return -2 * float(np.sum(y*np.log(mu) + (1 - y)*np.log(1 - mu)))
+        return -2 * float(np.sum(y * np.log(mu) + (1 - y) * np.log(1 - mu)))
 
     def sample(self, mu: MeanVector, dispersion: float) -> ResponseVector:
         return np.random.binomial(1, mu)
@@ -138,6 +150,7 @@ class QuasiPoisson(ExponentialFamily):
     a dispersion parameter is estimated, allowing for possibly larger standards
     errors when overdispersion is present.
     """
+
     has_dispersion = True
 
     def inv_link(self, eta: LinearPredictor) -> MeanVector:
@@ -150,12 +163,12 @@ class QuasiPoisson(ExponentialFamily):
         return mu
 
     def deviance(self, y: ResponseVector, mu: MeanVector) -> Deviance:
-        # Need to avoid explicitly calculating y*log(y) when y == 0. 
+        # Need to avoid explicitly calculating y*log(y) when y == 0.
         y_log_y = np.empty(shape=y.shape)
         y_log_y[y == 0] = 0
         y_non_zero = y[y != 0]
-        y_log_y[y != 0] = y_non_zero*np.log(y_non_zero)
-        return 2*float(np.sum(mu - y - y*np.log(mu) + y_log_y))
+        y_log_y[y != 0] = y_non_zero * np.log(y_non_zero)
+        return 2 * float(np.sum(mu - y - y * np.log(mu) + y_log_y))
 
     def sample(self, mu: MeanVector, dispersion: float) -> ResponseVector:
         return np.random.poisson(mu)
@@ -173,6 +186,7 @@ class Poisson(QuasiPoisson):
     overdispersion is present, the standard errors estimated in this model may
     be too small.  If this is the case, consider fitting a QuasiPoisson model.
     """
+
     has_dispersion = False
 
 
@@ -189,6 +203,7 @@ class Gamma(ExponentialFamily):
     reciporical link function.  Although the reciporical is the canonical link,
     the logarithmic link is more commonly used in Gamma regression.
     """
+
     has_dispersion = True
 
     def inv_link(self, eta: LinearPredictor) -> MeanVector:
@@ -218,4 +233,5 @@ class Exponential(Gamma):
     The only difference between this family and the Gamma family is that the
     dispersion is fixed at 1.
     """
+
     has_dispersion = False

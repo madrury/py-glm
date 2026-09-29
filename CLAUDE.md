@@ -23,7 +23,15 @@
   isn't visually ambiguous, e.g. `η` for the linear predictor rather than `ν`
   (which reads as `v`).
 
+## Code style
+
+- **Format with black.** All Python is black-formatted; don't hand-align
+  continuation lines.
+- **Absolute imports only.** Import within the package as `from glm.utils import
+  ...`, never with relative imports (`from .utils import ...`).
+
 ## Checks
 
 - Type check with `uv run mypy` (strict; configured in `pyproject.toml`).
+- Format with `uv run black glm tests doc`.
 - Run tests with `uv run pytest`.

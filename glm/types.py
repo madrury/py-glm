@@ -3,6 +3,7 @@
 Shapes are given in terms of n, the number of observations, and p, the number
 of coefficients in the model (including the intercept).
 """
+
 from typing import Any
 
 import numpy as np
