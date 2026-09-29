@@ -171,7 +171,7 @@ class GLM:
             else:
                 self.X_names = default_X_names(X)
             if y_name:
-                self.y_name = y_names
+                self.y_name = y_name
             else:
                 self.y_name = default_y_name()
             return self._fit(X, y, **kwargs)
@@ -376,5 +376,6 @@ class GLM:
         else:
             raise ValueError(
                 f"Cannot parse model formula {self.formula} to determine right hand side!")
+        
         X = pt.dmatrix(rhs_formula, X)
         return X

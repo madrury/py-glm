@@ -91,7 +91,7 @@ def test_gamma_regressions():
         gr.fit(X, y)
         #assert apgrox_equal(gr.coef_, parameters)
         gamma_model = sm.GLM(y, X, family=sm.families.Gamma(
-                                 link=statsmodels.genmod.families.links.log))
+                                 link=statsmodels.genmod.families.links.Log()))
         res = gamma_model.fit()
         assert approx_equal(gr.coef_, res.params)
         assert approx_equal(gr.coef_standard_error_, res.bse)
