@@ -24,6 +24,15 @@ def check_intercept(X: DesignMatrix) -> None:
         raise ValueError("First column in matrix X is not an intercept.")
 
 
+def has_missing_values(v: npt.NDArray[Any]) -> bool:
+    return bool(np.isnan(v).any())
+
+
+def check_no_missing_values(name: str, v: npt.NDArray[Any]) -> None:
+    if has_missing_values(v):
+        raise ValueError(f"{name} contains missing (NaN) values.")
+
+
 def has_same_length(v: npt.NDArray[Any], w: npt.NDArray[Any]) -> bool:
     return bool(v.shape[0] == w.shape[0])
 

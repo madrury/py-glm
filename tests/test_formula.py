@@ -55,6 +55,21 @@ def test_predict_uses_training_stateful_transforms(df: pd.DataFrame) -> None:
     np.testing.assert_allclose(model.predict(new), expected)
 
 
+def test_predict_with_missing_values_raises(df: pd.DataFrame) -> None:
+    model = GLM(Poisson()).fit(df, formula="y ~ x + C(g)")
+    # Dropping the incomplete row would return fewer predictions than rows.
+    new = pd.DataFrame({"x": [1.0, np.nan, 2.0], "g": ["a", "b", "c"]})
+    with pytest.raises(ValueError, match="null values"):
+        model.predict(new)
+
+
+@pytest.mark.parametrize("column", ["x", "g", "y"])
+def test_fit_with_missing_values_raises(df: pd.DataFrame, column: str) -> None:
+    df.loc[3, column] = None
+    with pytest.raises(ValueError, match="null values"):
+        GLM(Poisson()).fit(df, formula="y ~ x + C(g)")
+
+
 def test_formula_without_response_raises(df: pd.DataFrame) -> None:
     with pytest.raises(ValueError, match="must specify a response"):
         GLM(Poisson()).fit(df, formula="x + C(g)")

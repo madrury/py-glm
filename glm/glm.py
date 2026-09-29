@@ -27,6 +27,7 @@ from glm.types import (
 from glm.utils import (
     check_commensurate,
     check_intercept,
+    check_no_missing_values,
     check_offset,
     check_sample_weights,
     has_converged,
@@ -203,7 +204,11 @@ class GLM:
                     f"X must be a DataFrame if a formula is "
                     f"supplied, got a {type(X)}"
                 )
-            matrices = formulaic.model_matrix(formula, X, output="numpy")
+            # Raise on missing values rather than dropping rows, which would
+            # silently misalign the data with any offset or sample weights.
+            matrices = formulaic.model_matrix(
+                formula, X, output="numpy", na_action="raise"
+            )
             if not isinstance(matrices, formulaic.ModelMatrices):
                 raise ValueError(
                     f"Formula {formula!r} must specify a response, e.g. 'y ~ x'."
@@ -262,6 +267,8 @@ class GLM:
         This method expects X and y to be numpy arrays.
         """
         check_commensurate(X, y)
+        check_no_missing_values("X", X)
+        check_no_missing_values("y", y)
         if validate_intercept:
             check_intercept(X)
         if warm_start is None:
@@ -272,9 +279,11 @@ class GLM:
         if offset is None:
             offset = np.zeros(X.shape[0])
         check_offset(y, offset)
+        check_no_missing_values("offset", offset)
         if sample_weights is None:
             sample_weights = np.ones(X.shape[0])
         check_sample_weights(y, sample_weights)
+        check_no_missing_values("sample_weights", sample_weights)
 
         family = self.family
         η = np.dot(X, β) + offset
@@ -346,8 +355,15 @@ class GLM:
                     f"formula, got a {type(X)}"
                 )
             X = self._make_rhs_matrix(X)
+        elif not isinstance(X, np.ndarray):
+            raise TypeError(
+                f"X must be a numpy array for a model fit without a "
+                f"formula, got a {type(X)}"
+            )
+        check_no_missing_values("X", X)
         η = np.dot(X, self.coef_)
         if offset is not None:
+            check_no_missing_values("offset", offset)
             η = η + offset
         return self.family.inv_link(η)
 
@@ -478,7 +494,9 @@ class GLM:
     def _make_rhs_matrix(self, X: DesignFrame) -> DesignMatrix:
         if self.X_spec is None:
             raise ValueError("Model was not fit with a formula.")
+        # Raise on missing values rather than dropping rows, which would
+        # silently misalign the design matrix with the rows of X.
         design_matrix: DesignMatrix = np.asarray(
-            self.X_spec.get_model_matrix(X, output="numpy")
+            self.X_spec.get_model_matrix(X, output="numpy", na_action="raise")
         )
         return design_matrix
