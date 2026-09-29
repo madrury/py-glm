@@ -27,8 +27,11 @@ Repository = "https://github.com/madrury/py-glm"
 dev = [
     "jupyter",
     "matplotlib",
+    "mypy>=2.3.1",
+    "pandas-stubs>=3.0.5.260914",
     "pytest",
     "scikit-learn",
+    "scipy-stubs>=1.18.1.1",
     "statsmodels>=0.14",
 ]
 
@@ -37,3 +40,14 @@ packages = ["glm"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.mypy]
+files = ["glm"]
+# Not yet annotated: glmnet.py is out of scope for the current modernization
+# pass, and simulation.py is deferred until its known bugs are addressed.
+exclude = ["glm/glmnet\\.py$", "glm/simulation\\.py$"]
+strict = true
+
+[[tool.mypy.overrides]]
+module = ["patsy"]
+ignore_missing_imports = true

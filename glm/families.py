@@ -1,6 +1,11 @@
 """Exponential families for GLMs"""
 from abc import ABCMeta, abstractmethod
+from typing import ClassVar
+
 import numpy as np
+
+from .types import (CoefficientVector, Deviance, LinearPredictor, MeanVector,
+                    ResponseVector, SampleWeights, VarianceVector)
 
 
 class ExponentialFamily(metaclass=ABCMeta):
@@ -24,35 +29,40 @@ class ExponentialFamily(metaclass=ABCMeta):
 
     sample:
         A sampler from the conditional distribution of the reponse.
+
+    Attributes
+    ----------
+    has_dispersion:
+        Whether the family has a dispersion parameter that must be estimated.
     """
+    has_dispersion: ClassVar[bool]
+
     @abstractmethod
-    def inv_link(self, nu):
+    def inv_link(self, eta: LinearPredictor) -> MeanVector:
         pass
 
     @abstractmethod
-    def d_inv_link(self, nu, mu):
+    def d_inv_link(self, eta: LinearPredictor, mu: MeanVector) -> MeanVector:
         pass
 
     @abstractmethod
-    def variance(self, mu):
+    def variance(self, mu: MeanVector) -> VarianceVector:
         pass
 
     @abstractmethod
-    def deviance(self, y, mu):
+    def deviance(self, y: ResponseVector, mu: MeanVector) -> Deviance:
         pass
 
     @abstractmethod
-    def sample(self, mus, dispersion):
+    def sample(self, mu: MeanVector, dispersion: float) -> ResponseVector:
         pass
 
-
-class ExponentialFamilyMixin:
-    """Implementations of methods common to all ExponentialFamilies."""
-    def penalized_deviance(self, y, mu, alpha, coef):
-        return self.deviance(y, mu) + alpha*np.sum(coef[1:]**2)
+    def penalized_deviance(self, y: ResponseVector, mu: MeanVector,
+                           alpha: float, coef: CoefficientVector) -> Deviance:
+        return self.deviance(y, mu) + alpha*float(np.sum(coef[1:]**2))
 
 
-class Gaussian(ExponentialFamily, ExponentialFamilyMixin):
+class Gaussian(ExponentialFamily):
     """A Gaussian exponential family, used to fit a classical linear model.
 
     The GLM fit with this family has the following structure equation:
@@ -63,29 +73,29 @@ class Gaussian(ExponentialFamily, ExponentialFamilyMixin):
     """
     has_dispersion = True
 
-    def inv_link(self, nu):
-        return nu
+    def inv_link(self, eta: LinearPredictor) -> MeanVector:
+        return eta
 
-    def d_inv_link(self, nu, mu):
-        return np.ones(shape=nu.shape)
+    def d_inv_link(self, eta: LinearPredictor, mu: MeanVector) -> MeanVector:
+        return np.ones(shape=eta.shape)
 
-    def variance(self, mu):
+    def variance(self, mu: MeanVector) -> VarianceVector:
         return np.ones(shape=mu.shape)
 
-    def deviance(self, y, mu):
-        return np.sum((y - mu)**2)
+    def deviance(self, y: ResponseVector, mu: MeanVector) -> Deviance:
+        return float(np.sum((y - mu)**2))
 
-    def sample(self, mus, dispersion):
-        return np.random.normal(mus, np.sqrt(dispersion))
+    def sample(self, mu: MeanVector, dispersion: float) -> ResponseVector:
+        return np.random.normal(mu, np.sqrt(dispersion))
 
-    def initial_working_response(self, y):
+    def initial_working_response(self, y: ResponseVector) -> ResponseVector:
         return y
 
-    def initial_working_weights(self, y):
+    def initial_working_weights(self, y: ResponseVector) -> SampleWeights:
         return (1 / len(y)) * np.ones(len(y))
 
 
-class Bernoulli(ExponentialFamily, ExponentialFamilyMixin):
+class Bernoulli(ExponentialFamily):
     """A Bernoulli exponential family, used to fit a classical logistic model.
 
     The GLM fit with this family has the following structure equation:
@@ -94,29 +104,29 @@ class Bernoulli(ExponentialFamily, ExponentialFamilyMixin):
     """
     has_dispersion = False
 
-    def inv_link(self, nu):
-        return 1 / (1 + np.exp(-nu))
+    def inv_link(self, eta: LinearPredictor) -> MeanVector:
+        return 1 / (1 + np.exp(-eta))
 
-    def d_inv_link(self, nu, mu):
+    def d_inv_link(self, eta: LinearPredictor, mu: MeanVector) -> MeanVector:
         return mu * (1 - mu)
 
-    def variance(self, mu):
+    def variance(self, mu: MeanVector) -> VarianceVector:
         return mu * (1 - mu)
 
-    def deviance(self, y, mu):
-        return -2 * np.sum(y*np.log(mu) + (1 - y)*np.log(1 - mu))
+    def deviance(self, y: ResponseVector, mu: MeanVector) -> Deviance:
+        return -2 * float(np.sum(y*np.log(mu) + (1 - y)*np.log(1 - mu)))
 
-    def sample(self, mus, dispersion):
-        return np.random.binomial(1, mus)
+    def sample(self, mu: MeanVector, dispersion: float) -> ResponseVector:
+        return np.random.binomial(1, mu)
 
-    def initial_working_response(self, y):
+    def initial_working_response(self, y: ResponseVector) -> ResponseVector:
         return (y - 0.5) / 0.25
 
-    def initial_working_weights(self, y):
+    def initial_working_weights(self, y: ResponseVector) -> SampleWeights:
         return (1 / len(y)) * 0.25 * np.ones(len(y))
 
 
-class QuasiPoisson(ExponentialFamily, ExponentialFamilyMixin):
+class QuasiPoisson(ExponentialFamily):
     """A QuasiPoisson exponential family, used to fit a possibly overdispersed
     Poisson regression.
 
@@ -130,25 +140,25 @@ class QuasiPoisson(ExponentialFamily, ExponentialFamilyMixin):
     """
     has_dispersion = True
 
-    def inv_link(self, nu):
-        return np.exp(nu)
+    def inv_link(self, eta: LinearPredictor) -> MeanVector:
+        return np.exp(eta)
 
-    def d_inv_link(self, nu, mu):
+    def d_inv_link(self, eta: LinearPredictor, mu: MeanVector) -> MeanVector:
         return mu
 
-    def variance(self, mu):
+    def variance(self, mu: MeanVector) -> VarianceVector:
         return mu
 
-    def deviance(self, y, mu):
+    def deviance(self, y: ResponseVector, mu: MeanVector) -> Deviance:
         # Need to avoid explicitly calculating y*log(y) when y == 0. 
         y_log_y = np.empty(shape=y.shape)
         y_log_y[y == 0] = 0
         y_non_zero = y[y != 0]
         y_log_y[y != 0] = y_non_zero*np.log(y_non_zero)
-        return 2*np.sum(mu - y - y*np.log(mu) + y_log_y)
+        return 2*float(np.sum(mu - y - y*np.log(mu) + y_log_y))
 
-    def sample(self, mus, dispersion):
-        return np.random.poisson(mus)
+    def sample(self, mu: MeanVector, dispersion: float) -> ResponseVector:
+        return np.random.poisson(mu)
 
 
 class Poisson(QuasiPoisson):
@@ -166,7 +176,7 @@ class Poisson(QuasiPoisson):
     has_dispersion = False
 
 
-class Gamma(ExponentialFamily, ExponentialFamilyMixin):
+class Gamma(ExponentialFamily):
     """A Gamma exponential family.
 
     The GLM fit with this family has the following structure equation:
@@ -181,19 +191,19 @@ class Gamma(ExponentialFamily, ExponentialFamilyMixin):
     """
     has_dispersion = True
 
-    def inv_link(self, nu):
-        return np.exp(nu)
+    def inv_link(self, eta: LinearPredictor) -> MeanVector:
+        return np.exp(eta)
 
-    def d_inv_link(self, nu, mu):
+    def d_inv_link(self, eta: LinearPredictor, mu: MeanVector) -> MeanVector:
         return mu
 
-    def variance(self, mu):
+    def variance(self, mu: MeanVector) -> VarianceVector:
         return mu * mu
 
-    def deviance(self, y, mu):
-        return 2 * np.sum((y - mu) / mu - np.log(y / mu))
+    def deviance(self, y: ResponseVector, mu: MeanVector) -> Deviance:
+        return 2 * float(np.sum((y - mu) / mu - np.log(y / mu)))
 
-    def sample(self, mu, dispersion):
+    def sample(self, mu: MeanVector, dispersion: float) -> ResponseVector:
         shape, scale = dispersion, mu / dispersion
         return np.random.gamma(shape=shape, scale=scale)
 
