@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 import scipy.stats as sts
 import statsmodels.api as sm
 import statsmodels
@@ -12,7 +13,9 @@ from generate_data import (
 )
 
 N_SAMPLES = 100000
+# Each family is tested on this many random regressions, one per seed.
 N_REGRESSION_TESTS = 5
+SEEDS = range(N_REGRESSION_TESTS)
 # Each random regression draws between 1 and this many features of each kind.
 MAX_UNCORR_FEATURES = 9
 MAX_CORR_FEATURES = 9
@@ -23,11 +26,14 @@ MAX_CORR_FEATURES = 9
 # relative tolerance suffices.
 RTOL = 1e-3
 COEF_ATOL = 1e-5
+# Fit to a tight convergence tolerance, so that differences from statsmodels
+# reflect errors rather than where each library's iterations happened to stop.
+FIT_TOL = 1e-10
 # Maximum allowed distance, in standard errors, between an estimate and the
-# true parameter that generated the data. Each test compares every coefficient
-# of every regression to its true value, so we set the threshold with a
-# Bonferroni bound, allowing a FALSE_FAILURE_RATE chance of a spurious failure
-# per test. The bound is conservative, as the z-scores of collinear
+# true parameter that generated the data. Each family's tests compare every
+# coefficient of every regression to its true value, so we set the threshold
+# with a Bonferroni bound, allowing a FALSE_FAILURE_RATE chance of a spurious
+# failure per family. The bound is conservative, as the z-scores of collinear
 # coefficients are correlated.
 FALSE_FAILURE_RATE = 0.001
 MAX_COEFFICIENTS = 1 + MAX_UNCORR_FEATURES + MAX_CORR_FEATURES  # Intercept included.
@@ -35,103 +41,91 @@ MAX_COMPARISONS = N_REGRESSION_TESTS * MAX_COEFFICIENTS
 MAX_Z = sts.norm.isf(FALSE_FAILURE_RATE / (2 * MAX_COMPARISONS))
 
 
-def test_linear_regressions():
-
-    def _test_random_linear_regression():
-        n_uncorr_features, n_corr_features, n_drop_features = (
-            generate_regression_hyperparamters()
-        )
-        X, y, parameters = make_linear_regression(
-            n_samples=N_SAMPLES,
-            n_uncorr_features=n_uncorr_features,
-            n_corr_features=n_corr_features,
-            n_drop_features=n_drop_features,
-            resid_sd=0.01,
-        )
-        lr = GLM(family=Gaussian())
-        lr.fit(X, y, tol=10 ** (-8))
-        assert_near_truth(lr, parameters)
-        mod = sm.OLS(y, X)
-        res = mod.fit()
-        assert_matches_statsmodels(lr, res)
-
-    for _ in range(N_REGRESSION_TESTS):
-        _test_random_linear_regression()
+@pytest.mark.parametrize("seed", SEEDS)
+def test_linear_regression(seed):
+    np.random.seed(seed)
+    n_uncorr_features, n_corr_features, n_drop_features = (
+        generate_regression_hyperparamters()
+    )
+    X, y, parameters = make_linear_regression(
+        n_samples=N_SAMPLES,
+        n_uncorr_features=n_uncorr_features,
+        n_corr_features=n_corr_features,
+        n_drop_features=n_drop_features,
+        resid_sd=0.01,
+    )
+    lr = GLM(family=Gaussian())
+    lr.fit(X, y, tol=FIT_TOL)
+    assert_near_truth(lr, parameters)
+    mod = sm.OLS(y, X)
+    res = mod.fit()
+    assert_matches_statsmodels(lr, res)
 
 
-def test_logistic_regressions():
-
-    def _test_random_logistic_regression():
-        n_uncorr_features, n_corr_features, n_drop_features = (
-            generate_regression_hyperparamters()
-        )
-        X, y, parameters = make_logistic_regression(
-            n_samples=N_SAMPLES,
-            n_uncorr_features=n_uncorr_features,
-            n_corr_features=n_corr_features,
-            n_drop_features=n_drop_features,
-        )
-        lr = GLM(family=Bernoulli())
-        lr.fit(X, y)
-        assert_near_truth(lr, parameters)
-        mod = sm.Logit(y, X)
-        res = mod.fit(disp=0)
-        assert_matches_statsmodels(lr, res)
-
-    for _ in range(N_REGRESSION_TESTS):
-        _test_random_logistic_regression()
+@pytest.mark.parametrize("seed", SEEDS)
+def test_logistic_regression(seed):
+    np.random.seed(seed)
+    n_uncorr_features, n_corr_features, n_drop_features = (
+        generate_regression_hyperparamters()
+    )
+    X, y, parameters = make_logistic_regression(
+        n_samples=N_SAMPLES,
+        n_uncorr_features=n_uncorr_features,
+        n_corr_features=n_corr_features,
+        n_drop_features=n_drop_features,
+    )
+    lr = GLM(family=Bernoulli())
+    lr.fit(X, y, tol=FIT_TOL)
+    assert_near_truth(lr, parameters)
+    mod = sm.Logit(y, X)
+    res = mod.fit(disp=0)
+    assert_matches_statsmodels(lr, res)
 
 
-def test_poisson_regressions():
-
-    def _test_random_poisson_regression():
-        n_uncorr_features, n_corr_features, n_drop_features = (
-            generate_regression_hyperparamters()
-        )
-        X, y, parameters = make_poisson_regression(
-            n_samples=N_SAMPLES,
-            n_uncorr_features=n_uncorr_features,
-            n_corr_features=n_corr_features,
-            n_drop_features=n_drop_features,
-            coef_range=(-0.1, 0.1),
-        )
-        pr = GLM(family=Poisson())
-        pr.fit(X, y)
-        assert_near_truth(pr, parameters)
-        mod = statsmodels.discrete.discrete_model.Poisson(y, X)
-        res = mod.fit(disp=0)
-        assert_matches_statsmodels(pr, res)
-
-    for _ in range(N_REGRESSION_TESTS):
-        _test_random_poisson_regression()
+@pytest.mark.parametrize("seed", SEEDS)
+def test_poisson_regression(seed):
+    np.random.seed(seed)
+    n_uncorr_features, n_corr_features, n_drop_features = (
+        generate_regression_hyperparamters()
+    )
+    X, y, parameters = make_poisson_regression(
+        n_samples=N_SAMPLES,
+        n_uncorr_features=n_uncorr_features,
+        n_corr_features=n_corr_features,
+        n_drop_features=n_drop_features,
+        coef_range=(-0.1, 0.1),
+    )
+    pr = GLM(family=Poisson())
+    pr.fit(X, y, tol=FIT_TOL)
+    assert_near_truth(pr, parameters)
+    mod = statsmodels.discrete.discrete_model.Poisson(y, X)
+    res = mod.fit(disp=0)
+    assert_matches_statsmodels(pr, res)
 
 
-def test_gamma_regressions():
-
-    def _test_random_gamma_regression():
-        n_uncorr_features, n_corr_features, n_drop_features = (
-            generate_regression_hyperparamters()
-        )
-        X, y, parameters = make_gamma_regression(
-            n_samples=N_SAMPLES,
-            n_uncorr_features=n_uncorr_features,
-            n_corr_features=n_corr_features,
-            n_drop_features=n_drop_features,
-            coef_range=(-0.1, 0.1),
-        )
-        gr = GLM(family=Gamma())
-        gr.fit(X, y)
-        assert_near_truth(gr, parameters)
-        gamma_model = sm.GLM(
-            y, X, family=sm.families.Gamma(link=statsmodels.genmod.families.links.Log())
-        )
-        # We estimate the dispersion from the deviance; statsmodels defaults to
-        # Pearson's chi-squared, so ask it for the deviance-based estimate.
-        res = gamma_model.fit(scale="dev")
-        assert_matches_statsmodels(gr, res)
-
-    for _ in range(N_REGRESSION_TESTS):
-        _test_random_gamma_regression()
+@pytest.mark.parametrize("seed", SEEDS)
+def test_gamma_regression(seed):
+    np.random.seed(seed)
+    n_uncorr_features, n_corr_features, n_drop_features = (
+        generate_regression_hyperparamters()
+    )
+    X, y, parameters = make_gamma_regression(
+        n_samples=N_SAMPLES,
+        n_uncorr_features=n_uncorr_features,
+        n_corr_features=n_corr_features,
+        n_drop_features=n_drop_features,
+        coef_range=(-0.1, 0.1),
+    )
+    gr = GLM(family=Gamma())
+    gr.fit(X, y, tol=FIT_TOL)
+    assert_near_truth(gr, parameters)
+    gamma_model = sm.GLM(
+        y, X, family=sm.families.Gamma(link=statsmodels.genmod.families.links.Log())
+    )
+    # We estimate the dispersion from the deviance; statsmodels defaults to
+    # Pearson's chi-squared, so ask it for the deviance-based estimate.
+    res = gamma_model.fit(scale="dev")
+    assert_matches_statsmodels(gr, res)
 
 
 def assert_near_truth(model, parameters):
