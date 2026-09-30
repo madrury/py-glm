@@ -1,4 +1,5 @@
 import numpy as np
+import scipy.stats as sts
 import statsmodels.api as sm
 import statsmodels
 from glm.glm import GLM
@@ -11,8 +12,27 @@ from generate_data import (
 )
 
 N_SAMPLES = 100000
-TOL = 10 ** (-2)
 N_REGRESSION_TESTS = 5
+# Each random regression draws between 1 and this many features of each kind.
+MAX_UNCORR_FEATURES = 9
+MAX_CORR_FEATURES = 9
+# Tolerances for comparing against statsmodels. Both libraries fit the same
+# model to the same data, so any difference is numerical (from convergence
+# criteria), not statistical. Coefficients also need an absolute tolerance, as
+# some true coefficients are zero; standard errors are strictly positive, so a
+# relative tolerance suffices.
+RTOL = 1e-3
+COEF_ATOL = 1e-5
+# Maximum allowed distance, in standard errors, between an estimate and the
+# true parameter that generated the data. Each test compares every coefficient
+# of every regression to its true value, so we set the threshold with a
+# Bonferroni bound, allowing a FALSE_FAILURE_RATE chance of a spurious failure
+# per test. The bound is conservative, as the z-scores of collinear
+# coefficients are correlated.
+FALSE_FAILURE_RATE = 0.001
+MAX_COEFFICIENTS = 1 + MAX_UNCORR_FEATURES + MAX_CORR_FEATURES  # Intercept included.
+MAX_COMPARISONS = N_REGRESSION_TESTS * MAX_COEFFICIENTS
+MAX_Z = sts.norm.isf(FALSE_FAILURE_RATE / (2 * MAX_COMPARISONS))
 
 
 def test_linear_regressions():
@@ -30,11 +50,10 @@ def test_linear_regressions():
         )
         lr = GLM(family=Gaussian())
         lr.fit(X, y, tol=10 ** (-8))
-        assert approx_equal(lr.coef_, parameters)
+        assert_near_truth(lr, parameters)
         mod = sm.OLS(y, X)
         res = mod.fit()
-        assert approx_equal(lr.coef_, res.params)
-        assert approx_equal(lr.coef_standard_error_, res.bse)
+        assert_matches_statsmodels(lr, res)
 
     for _ in range(N_REGRESSION_TESTS):
         _test_random_linear_regression()
@@ -54,11 +73,10 @@ def test_logistic_regressions():
         )
         lr = GLM(family=Bernoulli())
         lr.fit(X, y)
-        # assert approx_equal(lr.coef_, parameters)
+        assert_near_truth(lr, parameters)
         mod = sm.Logit(y, X)
-        res = mod.fit()
-        assert approx_equal(lr.coef_, res.params)
-        assert approx_equal(lr.coef_standard_error_, res.bse)
+        res = mod.fit(disp=0)
+        assert_matches_statsmodels(lr, res)
 
     for _ in range(N_REGRESSION_TESTS):
         _test_random_logistic_regression()
@@ -79,11 +97,10 @@ def test_poisson_regressions():
         )
         pr = GLM(family=Poisson())
         pr.fit(X, y)
-        # assert approx_equal(pr.coef_, parameters)
+        assert_near_truth(pr, parameters)
         mod = statsmodels.discrete.discrete_model.Poisson(y, X)
-        res = mod.fit()
-        assert approx_equal(pr.coef_, res.params)
-        assert approx_equal(pr.coef_standard_error_, res.bse)
+        res = mod.fit(disp=0)
+        assert_matches_statsmodels(pr, res)
 
     for _ in range(N_REGRESSION_TESTS):
         _test_random_poisson_regression()
@@ -104,25 +121,31 @@ def test_gamma_regressions():
         )
         gr = GLM(family=Gamma())
         gr.fit(X, y)
-        # assert apgrox_equal(gr.coef_, parameters)
+        assert_near_truth(gr, parameters)
         gamma_model = sm.GLM(
             y, X, family=sm.families.Gamma(link=statsmodels.genmod.families.links.Log())
         )
-        res = gamma_model.fit()
-        assert approx_equal(gr.coef_, res.params)
-        assert approx_equal(gr.coef_standard_error_, res.bse)
+        # We estimate the dispersion from the deviance; statsmodels defaults to
+        # Pearson's chi-squared, so ask it for the deviance-based estimate.
+        res = gamma_model.fit(scale="dev")
+        assert_matches_statsmodels(gr, res)
 
     for _ in range(N_REGRESSION_TESTS):
         _test_random_gamma_regression()
 
 
-def approx_equal(x0, x1, tol=TOL):
-    all_within_tol = np.abs(x0 - x1) < tol
-    return np.all(all_within_tol)
+def assert_near_truth(model, parameters):
+    z = (model.coef_ - parameters) / model.coef_standard_error_
+    assert np.all(np.abs(z) < MAX_Z)
+
+
+def assert_matches_statsmodels(model, res):
+    np.testing.assert_allclose(model.coef_, res.params, rtol=RTOL, atol=COEF_ATOL)
+    np.testing.assert_allclose(model.coef_standard_error_, res.bse, rtol=RTOL)
 
 
 def generate_regression_hyperparamters():
-    n_uncorr_features = np.random.choice(list(range(1, 10)))
-    n_corr_features = np.random.choice(list(range(1, 10)))
+    n_uncorr_features = np.random.choice(list(range(1, MAX_UNCORR_FEATURES + 1)))
+    n_corr_features = np.random.choice(list(range(1, MAX_CORR_FEATURES + 1)))
     n_drop_features = np.random.choice(n_uncorr_features + n_corr_features)
     return n_uncorr_features, n_corr_features, n_drop_features
