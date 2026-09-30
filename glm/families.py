@@ -1,6 +1,6 @@
 """Exponential families for GLMs"""
 
-from abc import ABCMeta, abstractmethod
+from abc import ABC, abstractmethod
 from typing import ClassVar
 
 import numpy as np
@@ -8,6 +8,7 @@ import numpy as np
 from glm.types import (
     CoefficientVector,
     Deviance,
+    InverseLinkDerivative,
     LinearPredictor,
     MeanVector,
     ResponseVector,
@@ -16,7 +17,7 @@ from glm.types import (
 )
 
 
-class ExponentialFamily(metaclass=ABCMeta):
+class ExponentialFamily(ABC):
     """An ExponentialFamily must implement at least four methods and define one
     attribute.
 
@@ -29,7 +30,7 @@ class ExponentialFamily(metaclass=ABCMeta):
         The derivative of the inverse link function.
 
     variance:
-        The variance funtion linking the mean to the variance of the
+        The variance function linking the mean to the variance of the
         distribution.
 
     deviance:
@@ -51,7 +52,7 @@ class ExponentialFamily(metaclass=ABCMeta):
         pass
 
     @abstractmethod
-    def d_inv_link(self, eta: LinearPredictor, mu: MeanVector) -> MeanVector:
+    def d_inv_link(self, eta: LinearPredictor, mu: MeanVector) -> InverseLinkDerivative:
         pass
 
     @abstractmethod
@@ -69,6 +70,7 @@ class ExponentialFamily(metaclass=ABCMeta):
     def penalized_deviance(
         self, y: ResponseVector, mu: MeanVector, alpha: float, coef: CoefficientVector
     ) -> Deviance:
+        # coef[0] always holds the intercept, which we do not penalize.
         return self.deviance(y, mu) + alpha * float(np.sum(coef[1:] ** 2))
 
 
@@ -77,7 +79,7 @@ class Gaussian(ExponentialFamily):
 
     The GLM fit with this family has the following structure equation:
 
-        y | X ~ Gaussian(mu = X beta, sigma = dispersion)
+        y | X ~ Gaussian(mu = X @ beta, sigma = dispersion)
 
     Here, sigma is a nuisance parameter.
     """
@@ -87,7 +89,7 @@ class Gaussian(ExponentialFamily):
     def inv_link(self, eta: LinearPredictor) -> MeanVector:
         return eta
 
-    def d_inv_link(self, eta: LinearPredictor, mu: MeanVector) -> MeanVector:
+    def d_inv_link(self, eta: LinearPredictor, mu: MeanVector) -> InverseLinkDerivative:
         return np.ones(shape=eta.shape)
 
     def variance(self, mu: MeanVector) -> VarianceVector:
@@ -111,7 +113,7 @@ class Bernoulli(ExponentialFamily):
 
     The GLM fit with this family has the following structure equation:
 
-        y | X ~ Bernoulli(p = X beta)
+        y | X ~ Bernoulli(p = X @ beta)
     """
 
     has_dispersion = False
@@ -119,7 +121,7 @@ class Bernoulli(ExponentialFamily):
     def inv_link(self, eta: LinearPredictor) -> MeanVector:
         return 1 / (1 + np.exp(-eta))
 
-    def d_inv_link(self, eta: LinearPredictor, mu: MeanVector) -> MeanVector:
+    def d_inv_link(self, eta: LinearPredictor, mu: MeanVector) -> InverseLinkDerivative:
         return mu * (1 - mu)
 
     def variance(self, mu: MeanVector) -> VarianceVector:
@@ -144,7 +146,7 @@ class QuasiPoisson(ExponentialFamily):
 
     The GLM fit with this family has the following structure equation:
 
-        y | X ~ Poisson(mu = exp(X beta))
+        y | X ~ Poisson(mu = exp(X @ beta))
 
     The parameter esimtates of this model are the same as a Poisson model, but
     a dispersion parameter is estimated, allowing for possibly larger standards
@@ -156,7 +158,7 @@ class QuasiPoisson(ExponentialFamily):
     def inv_link(self, eta: LinearPredictor) -> MeanVector:
         return np.exp(eta)
 
-    def d_inv_link(self, eta: LinearPredictor, mu: MeanVector) -> MeanVector:
+    def d_inv_link(self, eta: LinearPredictor, mu: MeanVector) -> InverseLinkDerivative:
         return mu
 
     def variance(self, mu: MeanVector) -> VarianceVector:
@@ -175,16 +177,15 @@ class QuasiPoisson(ExponentialFamily):
 
 
 class Poisson(QuasiPoisson):
-    """A QuasiPoisson exponential family, used to fit a possibly overdispersed
-    Poisson regression.
+    """A Poisson exponential family, used to fit a Poisson regression.
 
     The GLM fit with this family has the following structure equation:
 
-        y | X ~ Poisson(mu = exp(X beta))
+        y | X ~ Poisson(mu = exp(X @ beta))
 
     The Poisson model does not estimate a dispersion parameter; if
     overdispersion is present, the standard errors estimated in this model may
-    be too small.  If this is the case, consider fitting a QuasiPoisson model.
+    be too small. If this is the case, consider fitting a QuasiPoisson model.
     """
 
     has_dispersion = False
@@ -195,9 +196,7 @@ class Gamma(ExponentialFamily):
 
     The GLM fit with this family has the following structure equation:
 
-        y | X ~ Gamma(shape = dispersion, scale = exp(X beta) / dispersion)
-
-    Here, sigma is a nuisance parameter.
+        y | X ~ Gamma(shape = dispersion, scale = exp(X @ beta) / dispersion)
 
     Note: In this family we use the logarithmic link function, instead of the
     reciporical link function.  Although the reciporical is the canonical link,
@@ -209,7 +208,7 @@ class Gamma(ExponentialFamily):
     def inv_link(self, eta: LinearPredictor) -> MeanVector:
         return np.exp(eta)
 
-    def d_inv_link(self, eta: LinearPredictor, mu: MeanVector) -> MeanVector:
+    def d_inv_link(self, eta: LinearPredictor, mu: MeanVector) -> InverseLinkDerivative:
         return mu
 
     def variance(self, mu: MeanVector) -> VarianceVector:
@@ -228,10 +227,10 @@ class Exponential(Gamma):
 
     The GLM fit with this family has the following structure equation:
 
-        y | X = Exponentiatl(scale = exp(X beta))
+        y | X = Exponentiatl(scale = exp(X @ beta))
 
     The only difference between this family and the Gamma family is that the
-    dispersion is fixed at 1.
+    dispersion is fixed at 1.0.
     """
 
     has_dispersion = False

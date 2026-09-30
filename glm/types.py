@@ -46,6 +46,10 @@ type LinearPredictor = npt.NDArray[np.float64]
 type MeanVector = npt.NDArray[np.float64]
 """The conditional mean μ = E[y | X], shape (n,)."""
 
+type InverseLinkDerivative = npt.NDArray[np.float64]
+"""The derivative of the mean with respect to the linear predictor, dμ/dη,
+evaluated at each observation, shape (n,)."""
+
 type VarianceVector = npt.NDArray[np.float64]
 """The variance function evaluated at the mean, V(μ), shape (n,)."""
 

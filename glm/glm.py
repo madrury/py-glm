@@ -16,6 +16,7 @@ from glm.types import (
     DesignSpec,
     Formula,
     InformationMatrix,
+    InverseLinkDerivative,
     MeanVector,
     Offset,
     PValueVector,
@@ -40,25 +41,24 @@ class GLM:
     """A generalized linear model.
 
     GLMs are a generalization of the classical linear and logistic models to
-    other conditional distributions of response y.  A GLM is specified by a
+    other conditional distributions of response y. A GLM is specified by a
     *link function* G and a family of *conditional distributions* dist, with
     the model specification given by
 
         y | X ~ dist(theta = G(X * beta))
 
     Here beta are the parameters fit in the model, with X * beta a matrix
-    multiplication just like in linear regression.  Above, theta is a
+    multiplication just like in linear regression. Above, theta is a
     *parameter* of the one parameter family of distributions dist.
 
     In this implementation, a specific GLM is specified with a *family* object
     of ExponentialFamily type, which contains the information about the
-    conditional distribution of y, and its connection to X, needed to construct
-    the model. See the documentation for ExponentialFamily for
-    details.
+    conditional distribution of y (and its connection to X) needed to construct
+    the model. See the documentation for ExponentialFamily for details.
 
     The model is fit to data using the well known Fisher Scoring algorithm,
-    which is a version of Newton's method where the hessian is replaced with
-    its expectation with respect to the assumed distribution of Y.
+    which is a version of Newton's method where the hessian is replaced with its
+    expectation with respect to the assumed distribution of Y.
 
     Parameters
     ----------
@@ -95,7 +95,7 @@ class GLM:
         Name for the target varaible.
 
     coef_: array, shape (n_features, )
-        The fit parameter estimates.  None if the model has not yet been fit.
+        The fit parameter estimates. None if the model has not yet been fit.
 
     deviance_: float
         The final deviance of the fit model on the training data.
@@ -113,9 +113,9 @@ class GLM:
 
     Notes
     -----
-    Instead of supplying a `fit_intercept` argument, we have instead assumed
-    the programmer has included a column of ones as the *first* column X. The
-    fit method will throw an exception if this is not the case.
+    Instead of supplying a `fit_intercept` argument, we have instead assumed the
+    programmer has included a column of ones as the *first* column X. The fit
+    method will throw an exception if this is not the case.
     """
 
     def __init__(self, family: ExponentialFamily, alpha: float = 0.0) -> None:
@@ -156,23 +156,23 @@ class GLM:
             Training data.
 
         y: array, shape (n_samples, )
-            Target values.
+            Response /Target vector.
 
         formula: str
             A formula specifying the model.  Used in the case that X is passed
-            as a DataFrame.  For documentation on model formulas, please see
+            as a DataFrame. For documentation on model formulas, please see
             the formulaic library documentation.
 
         warm_start: array, shape (n_features, )
             Initial values to use for the parameter estimates in the
             optimization, useful when fitting an entire regulatization path of
-            models.  If not supplies, the initial intercept estimate will be
-            the mean of the target array, and all other parameter estimates
-            will be initialized to zero.
+            models. If not supplied, the initial intercept estimate will be the
+            mean of the target array, and all other parameter estimates will be
+            initialized to zero.
 
         offset: array, shape (n_samples, )
-            Offsets for samples.  If provided, the model fit is
-                E[Y|X] = family.inv_link(np.dot(X, coef) + offset)
+            Offsets for samples. If provided, the model fit is
+                E[Y|X] = family.inv_link(X @ coef + offset)
             This is specially useful in models with exposures, as in Poisson
             regression.
 
@@ -185,7 +185,7 @@ class GLM:
             The maximum number of iterations for the fitting algorithm.
 
         tol: float, non-negative and less than one
-            The convergence tolerance for the fitting algorithm.  The relative
+            The convergence tolerance for the fitting algorithm. The relative
             change in deviance is compared to this tolerance to check for
             convergence.
 
@@ -286,7 +286,7 @@ class GLM:
         check_no_missing_values("sample_weights", sample_weights)
 
         family = self.family
-        η = np.dot(X, β) + offset
+        η = X @ β + offset
         μ = family.inv_link(η)
         dμ = family.d_inv_link(η, μ)
         var = family.variance(μ)
@@ -294,7 +294,7 @@ class GLM:
         is_converged = False
         n_iter = 0
         while n_iter < max_iter and not is_converged:
-            η = np.dot(X, β) + offset
+            η = X @ β + offset
             μ = family.inv_link(η)
             dμ = family.d_inv_link(η, μ)
             var = family.variance(μ)
@@ -321,23 +321,23 @@ class GLM:
     def predict(
         self, X: DesignMatrix | DesignFrame, offset: Offset | None = None
     ) -> MeanVector:
-        """Return predictions from a fit model.
+        """Return predictions from a fit model (estimates of E[y | X]).
 
         Predictions are computed using the inverse link function in the family
         used to fit the model:
 
-            preds = family.inv_link(np.dot(X, self.coef_)
+            preds = family.inv_link(X @ self.coef_)
 
-        Note that in the case of binary models, predict *does not* make class
+        Note: In the case of binary models, predict *does not* make class
         assignmnets, it returns a probability of class membership.
 
         Parameters
         ----------
-        X: array, shape (n_samples, n_features)
-            Data set.
+        X: array, shape (n_samples, n_features) or pd.DataFrame
+            Inference data.
 
         offset: array, shape (n_samples, )
-            Offsets to add on the linear scale when making predictions.
+            Offsets to add on the linear predictor when making predictions.
 
         Returns
         -------
@@ -361,7 +361,7 @@ class GLM:
                 f"formula, got a {type(X)}"
             )
         check_no_missing_values("X", X)
-        η = np.dot(X, self.coef_)
+        η = X @ self.coef_
         if offset is not None:
             check_no_missing_values("offset", offset)
             η = η + offset
@@ -376,7 +376,7 @@ class GLM:
             Data set.
 
         y: array, shape (n_samples, )
-            Labels for X.
+            Response vector aligned to X.
 
         Returns
         -------
@@ -390,7 +390,7 @@ class GLM:
         """Return an estimate of the dispersion parameter phi."""
         if self.deviance_ is None or self.n is None or self.p is None:
             raise ValueError(
-                "Dispersion parameter can only be estimated for a " "fit model."
+                "Dispersion parameter can only be estimated for a fit model."
             )
         if self.family.has_dispersion:
             return self.deviance_ / (self.n - self.p)
@@ -401,7 +401,7 @@ class GLM:
     def coef_covariance_matrix_(self) -> CovarianceMatrix:
         if self.information_matrix_ is None:
             raise ValueError(
-                "Parameter covariances can only be estimated for a " "fit model."
+                "Parameter covariances can only be estimated for a fit model."
             )
         return self.dispersion_ * np.linalg.inv(self.information_matrix_)
 
@@ -411,20 +411,21 @@ class GLM:
 
     @property
     def p_values_(self) -> PValueVector:
-        """Return an array of p-values for the fit coefficients.  These
-        p-values test the hypothesis that the given parameter is zero.
+        """Return an array of p-values for the fit coefficients. These p-values
+        test the hypothesis that the given parameter is zero.
 
-        Note: We use the asymptotic normal approximation to the p-values for
-        all models.
+        Note: We use the asymptotic normal approximation to the parameter
+        estimates to compute the p-values for all models.
         """
         if self.alpha != 0:
-            raise ValueError("P-values are not available for " "regularized models.")
+            raise ValueError("p-values are not available for regularized models.")
         if self.coef_ is None:
-            raise ValueError("P-values can only be computed for a fit model.")
+            raise ValueError("p-values can only be computed for a fit model.")
         p_values = []
         null_dist = sts.norm(loc=0.0, scale=1.0)
-        for β_j, std_err in zip(self.coef_, self.coef_standard_error_):
-            z = abs(β_j) / std_err
+        for β, std_err in zip(self.coef_, self.coef_standard_error_):
+            z = abs(β) / std_err
+            # Two tailed.
             p_value = null_dist.cdf(-z) + (1 - null_dist.cdf(z))
             p_values.append(p_value)
         return np.asarray(p_values, dtype=np.float64)
@@ -463,7 +464,7 @@ class GLM:
         X: DesignMatrix,
         y: ResponseVector,
         μ: MeanVector,
-        dμ: MeanVector,
+        dμ: InverseLinkDerivative,
         var: VarianceVector,
         sample_weights: SampleWeights,
     ) -> DevianceGradient:
@@ -473,7 +474,7 @@ class GLM:
     def _compute_ddbeta(
         self,
         X: DesignMatrix,
-        dμ: MeanVector,
+        dμ: InverseLinkDerivative,
         var: VarianceVector,
         sample_weights: SampleWeights,
     ) -> InformationMatrix:
