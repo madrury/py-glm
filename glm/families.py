@@ -196,10 +196,12 @@ class Gamma(ExponentialFamily):
 
     The GLM fit with this family has the following structure equation:
 
-        y | X ~ Gamma(shape = dispersion, scale = exp(X @ beta) / dispersion)
+        y | X ~ Gamma(shape = 1 / dispersion, scale = exp(X @ beta) * dispersion)
+
+    so that E[y | X] = exp(X @ beta) and Var[y | X] = dispersion * E[y | X]**2.
 
     Note: In this family we use the logarithmic link function, instead of the
-    reciporical link function.  Although the reciporical is the canonical link,
+    reciprocal link function.  Although the reciprocal is the canonical link,
     the logarithmic link is more commonly used in Gamma regression.
     """
 
@@ -218,7 +220,9 @@ class Gamma(ExponentialFamily):
         return 2 * float(np.sum((y - mu) / mu - np.log(y / mu)))
 
     def sample(self, mu: MeanVector, dispersion: float) -> ResponseVector:
-        shape, scale = dispersion, mu / dispersion
+        # The shape is dimensionless and sets the coefficient of variation,
+        # CV**2 = 1 / shape = dispersion. The scale carries the units of y.
+        shape, scale = 1 / dispersion, mu * dispersion
         return np.random.gamma(shape=shape, scale=scale)
 
 
