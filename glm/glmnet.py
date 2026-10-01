@@ -1,9 +1,17 @@
 from copy import copy
 import numpy as np
 from itertools import cycle
-from .utils import (check_commensurate, check_intercept, check_offset,
-                    check_sample_weights, has_converged, soft_threshold,
-                    weighted_means, weighted_dot, weighted_column_dots)
+from glm.utils import (
+    check_commensurate,
+    check_intercept,
+    check_offset,
+    check_sample_weights,
+    has_converged,
+    soft_threshold,
+    weighted_means,
+    weighted_dot,
+    weighted_column_dots,
+)
 
 
 class ElasticNet:
@@ -82,6 +90,7 @@ class ElasticNet:
     Tibshirani: Regularization Paths for Generalized Linear Models via
     Coordinate Descent (hereafter referenced as [FHT]).
     """
+
     def __init__(self, lam, alpha, max_iter=200, tol=0.1**3):
         # TODO: Check that alpha is between zero and one.
         self.lam = lam
@@ -194,8 +203,13 @@ class ElasticNet:
         xtx_dots = np.zeros((n_coef, n_coef))
         for i in range(n_active_coefs):
             xtx_dots = self._update_xtx_dots(
-                        xtx_dots, X, active_coef_idx_list[i], sample_weights,
-                        n_active_coefs, active_coef_idx_list)
+                xtx_dots,
+                X,
+                active_coef_idx_list[i],
+                sample_weights,
+                n_active_coefs,
+                active_coef_idx_list,
+            )
         # Data elements involving the regularization strength, used in the
         # coefficient update calculations.
         lambda_alpha = self.lam * self.alpha
@@ -209,14 +223,23 @@ class ElasticNet:
             previous_coefs[:] = active_coefs
             for j in range(n_coef):
                 partial_residual = self._compute_partial_residual(
-                    x_means, xy_dots, xx_dots, xtx_dots, offset_dots,
-                    j, active_coefs, j_to_active_map, n_active_coefs)
+                    x_means,
+                    xy_dots,
+                    xx_dots,
+                    xtx_dots,
+                    offset_dots,
+                    j,
+                    active_coefs,
+                    j_to_active_map,
+                    n_active_coefs,
+                )
                 if j == 0:
-                    new_coef = partial_residual / weight_sum 
+                    new_coef = partial_residual / weight_sum
                 else:
                     update_denom = xx_dots[j] + update_denom_scale
                     partial_resid_threshold = soft_threshold(
-                        partial_residual, lambda_alpha)
+                        partial_residual, lambda_alpha
+                    )
                     new_coef = partial_resid_threshold / update_denom
                 if j in active_coef_set:
                     active_coefs[j_to_active_map[j]] = new_coef
@@ -227,15 +250,18 @@ class ElasticNet:
                     active_coef_idx_list.append(j)
                     active_coef_set.add(j)
                     xtx_dots = self._update_xtx_dots(
-                        xtx_dots, X, j, sample_weights,
-                        n_active_coefs, active_coef_idx_list)
+                        xtx_dots,
+                        X,
+                        j,
+                        sample_weights,
+                        n_active_coefs,
+                        active_coef_idx_list,
+                    )
 
-            coefs = self._make_true_coefs(
-                n_coef, active_coefs, active_coef_idx_list)
+            coefs = self._make_true_coefs(n_coef, active_coefs, active_coef_idx_list)
             self._coef_path.append(coefs)
 
-            is_converged = np.allclose(
-                active_coefs, previous_coefs, rtol=self.tol)
+            is_converged = np.allclose(active_coefs, previous_coefs, rtol=self.tol)
             n_iter += 1
 
         # -- Wrap up.
@@ -247,9 +273,18 @@ class ElasticNet:
         self._n_active_coefs = n_active_coefs
         return self
 
-    def _compute_partial_residual(self,
-                                  x_means, xy_dots, xx_dots, xtx_dots, offset_dots,
-                                  j, active_coefs, j_to_active_map, n_active_coefs):
+    def _compute_partial_residual(
+        self,
+        x_means,
+        xy_dots,
+        xx_dots,
+        xtx_dots,
+        offset_dots,
+        j,
+        active_coefs,
+        j_to_active_map,
+        n_active_coefs,
+    ):
         """Compute the partial residual used in the elastic net update rule.
 
         The partial residual is the residual from the predictions using the
@@ -263,23 +298,23 @@ class ElasticNet:
         cases. Adding support for an offset is a simple elaboration on the
         ideas included there.
         """
-        xj_dot_partial_prediction = (
-            np.sum(xtx_dots[j, :n_active_coefs] * active_coefs[:n_active_coefs]))
-        xj_dot_residual = (
-            xy_dots[j] - xj_dot_partial_prediction - offset_dots[j])
+        xj_dot_partial_prediction = np.sum(
+            xtx_dots[j, :n_active_coefs] * active_coefs[:n_active_coefs]
+        )
+        xj_dot_residual = xy_dots[j] - xj_dot_partial_prediction - offset_dots[j]
         partial_residual = (
-            xj_dot_residual + xx_dots[j] * active_coefs[j_to_active_map[j]])
+            xj_dot_residual + xx_dots[j] * active_coefs[j_to_active_map[j]]
+        )
         return partial_residual
 
-    def _update_xtx_dots(self,
-                         xtx_dots, X, j, sample_weights,
-                         n_active_coefs, active_coef_idx_list):
+    def _update_xtx_dots(
+        self, xtx_dots, X, j, sample_weights, n_active_coefs, active_coef_idx_list
+    ):
         """Update the xtx_dots matrix of weighted dot products of the columns
         in the training data with the products involving column j. This is used
         when a new predictor enters the model.
         """
-        xtx_dots[j, n_active_coefs - 1] = weighted_dot(
-            X[:, j], X[:, j], sample_weights)
+        xtx_dots[j, n_active_coefs - 1] = weighted_dot(X[:, j], X[:, j], sample_weights)
         for idx, active_coef_idx in enumerate(active_coef_idx_list):
             dprod = weighted_dot(X[:, j], X[:, active_coef_idx], sample_weights)
             xtx_dots[j, idx] = dprod
@@ -304,7 +339,8 @@ class ElasticNet:
         the associated columns in X.
         """
         return self._make_true_coefs(
-            self.p, self._active_coefs, self._active_coef_idx_list)
+            self.p, self._active_coefs, self._active_coef_idx_list
+        )
 
     def _make_true_coefs(self, n_coef, active_coefs, active_coef_idx_list):
         """Process active coefficient list into an array with coefficients in
@@ -355,22 +391,28 @@ class GLMNet:
                 enet = ElasticNet(lam=lam, alpha=self.alpha)
                 # Case: First quadratic approximation for the first lambda.
                 if i == 0 and n_iter == 0:
-                    enet.fit(
-                        X, working_response, sample_weights=working_weights)
+                    enet.fit(X, working_response, sample_weights=working_weights)
                 # Case: First quadratic approximation for subsequent lambdas.
                 elif n_iter == 0:
                     enet.fit(
-                        X, working_response, sample_weights=working_weights, 
-                        warm_start=self._enets[-1][-1])
+                        X,
+                        working_response,
+                        sample_weights=working_weights,
+                        warm_start=self._enets[-1][-1],
+                    )
                 # Case: Subsequent quadratic approximations for subsequent
                 # lambdas.
                 else:
                     enet.fit(
-                        X, working_response, sample_weights=working_weights,
-                        warm_start=inner_enets[-1])
+                        X,
+                        working_response,
+                        sample_weights=working_weights,
+                        warm_start=inner_enets[-1],
+                    )
                 inner_enets.append(enet)
                 working_response, working_weights = (
-                    self.make_working_response_and_weights(X, y, enet))
+                    self.make_working_response_and_weights(X, y, enet)
+                )
                 # Check if the inner loop of quadratic approximations has
                 # converged.
                 if np.allclose(previous_coefs, enet.coef_, rtol=self.tol):

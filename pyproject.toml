@@ -1,20 +1,57 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
 [project]
 name = "py-glm"
 version = "0.1.0"
-description = "Add your description here"
+description = "Fitting, inspecting, and evaluating generalized linear models."
 readme = "README.md"
+license = "BSD-3-Clause"
+license-files = ["LICENSE"]
+authors = [
+    { name = "Matthew Drury", email = "matthew.drury.83@gmail.com" },
+]
 requires-python = ">=3.13"
-
 dependencies = [
-    "numpy==2.5.3",
-    "packaging==26.3",
-    "patsy==1.0.3",
-    "scipy==1.18.1",
+    "formulaic>=1.1",
+    "numpy>=2.1",
+    "pandas>=2.2.3",
+    "scipy>=1.14.1",
 ]
 
-[project.optional-dependencies]
+[project.urls]
+Repository = "https://github.com/madrury/py-glm"
+
+[dependency-groups]
 dev = [
-    "pytest",
+    "black>=26.5.1",
     "jupyter",
-    "matplotlib"
+    "matplotlib",
+    "mypy>=2.3.1",
+    "pandas-stubs>=3.0.5.260914",
+    "pytest",
+    "scikit-learn",
+    "scipy-stubs>=1.18.1.1",
+    "statsmodels>=0.14",
 ]
+
+[tool.hatch.build.targets.wheel]
+packages = ["glm"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.mypy]
+files = ["glm"]
+# Not yet annotated: glmnet.py is out of scope for the current modernization
+# pass.
+exclude = ["glm/glmnet\\.py$"]
+strict = true
+
+[[tool.mypy.overrides]]
+module = ["formulaic", "formulaic.*"]
+ignore_missing_imports = true
+
+[tool.black]
+target-version = ["py313"]
