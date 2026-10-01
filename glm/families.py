@@ -50,6 +50,9 @@ class ExponentialFamily(ABC):
 
     has_dispersion: ClassVar[bool]
 
+    def __repr__(self) -> str:
+        return f"{type(self).__name__}()"
+
     @abstractmethod
     def link(self, mu: MeanVector) -> LinearPredictor:
         pass

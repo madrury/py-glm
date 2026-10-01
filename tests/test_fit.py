@@ -62,6 +62,15 @@ def test_non_finite_estimates_raise(X: np.ndarray) -> None:
         GLM(Bernoulli()).fit(X, np.zeros(N))
 
 
+def test_repr() -> None:
+    model = GLM(Poisson(), alpha=0.5)
+    assert repr(model) == "GLM(family=Poisson(), alpha=0.5)"
+    # The repr shows the constructor arguments, so it is unchanged by fitting.
+    X = np.column_stack([np.ones(N), np.linspace(-1, 1, N)])
+    model.fit(X, np.ones(N))
+    assert repr(model) == "GLM(family=Poisson(), alpha=0.5)"
+
+
 @pytest.mark.parametrize("family", [Gaussian(), Poisson()])
 def test_perfect_fit_converges(family: ExponentialFamily) -> None:
     # A perfect fit has zero deviance, which must not break the relative

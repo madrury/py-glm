@@ -477,6 +477,9 @@ class GLM:
         for name, est, se in zip(variable_names, parameter_estimates, standard_errors):
             print(format_string.format(name, est, se))
 
+    def __repr__(self) -> str:
+        return f"{type(self).__name__}(family={self.family!r}, alpha={self.alpha!r})"
+
     def clone(self) -> Self:
         return self.__class__(self.family, self.alpha)
 
