@@ -214,3 +214,31 @@ def test_non_parametric_bootstrap_rank_deficient_resample_raises(
     model = GLM(Poisson()).fit(X, df["y"].to_numpy())
     with pytest.raises(ValueError, match="rank deficient"):
         Simulation(model).non_parametric_bootstrap(X, df["y"].to_numpy(), n_sim=50)
+
+
+BOOTSTRAPS = {
+    "parametric_bootstrap": lambda sim, df, **kw: sim.parametric_bootstrap(df, **kw),
+    "non_parametric_bootstrap": lambda sim, df, **kw: sim.non_parametric_bootstrap(
+        df, **kw
+    ),
+}
+
+
+@pytest.mark.parametrize("bootstrap", BOOTSTRAPS)
+def test_bootstrap_validates_intercept_by_default(
+    df: pd.DataFrame, bootstrap: str
+) -> None:
+    model = GLM(Poisson()).fit(df, formula="y ~ x - 1", validate_intercept=False)
+    with pytest.raises(ValueError, match="not an intercept"):
+        BOOTSTRAPS[bootstrap](Simulation(model), df, n_sim=2)
+
+
+@pytest.mark.parametrize("bootstrap", BOOTSTRAPS)
+def test_bootstrap_without_intercept(df: pd.DataFrame, bootstrap: str) -> None:
+    model = GLM(Poisson()).fit(df, formula="y ~ x - 1", validate_intercept=False)
+    models = BOOTSTRAPS[bootstrap](
+        Simulation(model), df, n_sim=N_SIM, validate_intercept=False
+    )
+    for boot in models:
+        assert boot.coef_ is not None
+        assert boot.coef_.shape == (1,)

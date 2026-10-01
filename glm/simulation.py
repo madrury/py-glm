@@ -79,6 +79,11 @@ class Simulation:
             Offsets to use in predictions feeding into the conditional
             distributions.
 
+        validate_intercept: bool
+            Check that the first column of each replicate's design matrix is an
+            intercept. Set to False for models without one, e.g. a formula
+            such as "y ~ x - 1".
+
         Returns
         -------
 
@@ -101,7 +106,13 @@ class Simulation:
         ]
 
     def non_parametric_bootstrap(
-        self, X, y=None, n_sim=100, offset=None, sample_weights=None
+        self,
+        X,
+        y=None,
+        n_sim=100,
+        offset=None,
+        sample_weights=None,
+        validate_intercept=True,
     ):
         """Fit models to non-parameteric bootstrap samples.
 
@@ -127,6 +138,11 @@ class Simulation:
         sample_weights: array, shape (n_samples, )
             Sample weights used when fitting each model. Each resampled row
             keeps its weight.
+
+        validate_intercept: bool
+            Check that the first column of each replicate's design matrix is an
+            intercept. Set to False for models without one, e.g. a formula
+            such as "y ~ x - 1".
 
         Returns
         -------
@@ -161,7 +177,7 @@ class Simulation:
                     sample_weights=(
                         None if sample_weights is None else sample_weights[idxs]
                     ),
-                    validate_intercept=self.glm.X_spec is None,
+                    validate_intercept=validate_intercept,
                 )
             )
         return models
