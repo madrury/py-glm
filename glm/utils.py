@@ -50,8 +50,9 @@ def check_sample_weights(y: ResponseVector, sample_weights: SampleWeights) -> No
 def has_converged(loss: Deviance, loss_prev: Deviance, tol: float) -> bool:
     if loss_prev == np.inf:
         return False
-    rel_change = np.abs((loss - loss_prev) / loss_prev)
-    return bool(rel_change < tol)
+    # The relative change in loss, |loss - loss_prev| / |loss_prev| < tol, written
+    # without division so that a perfect fit, with zero loss, converges.
+    return bool(abs(loss - loss_prev) <= tol * abs(loss_prev))
 
 
 def default_X_names(X: DesignMatrix) -> list[str]:

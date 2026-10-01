@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from glm.families import Bernoulli, Gamma, Poisson
+from glm.families import Bernoulli, ExponentialFamily, Gamma, Gaussian, Poisson
 from glm.glm import GLM
 
 N = 500
@@ -60,3 +60,14 @@ def test_non_finite_estimates_raise(X: np.ndarray) -> None:
     # The MLE does not exist for an all-zero binary response.
     with pytest.raises(ValueError, match="not finite"):
         GLM(Bernoulli()).fit(X, np.zeros(N))
+
+
+@pytest.mark.parametrize("family", [Gaussian(), Poisson()])
+def test_perfect_fit_converges(family: ExponentialFamily) -> None:
+    # A perfect fit has zero deviance, which must not break the relative
+    # convergence check.
+    X = np.column_stack([np.ones(N), np.linspace(-1, 1, N)])
+    β = np.array([1.0, 0.5])
+    model = GLM(family).fit(X, family.inv_link(X @ β))
+    assert model.coef_ is not None
+    np.testing.assert_allclose(model.coef_, β)
