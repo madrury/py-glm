@@ -102,7 +102,9 @@ class Simulation:
             models.append(model)
         return models
 
-    def non_parametric_bootstrap(self, X, y=None, n_sim=100, offset=None):
+    def non_parametric_bootstrap(
+        self, X, y=None, n_sim=100, offset=None, sample_weights=None
+    ):
         """Fit models to non-parameteric bootstrap samples.
 
         The non-parametric operates by sampling data with replacement from the
@@ -124,6 +126,10 @@ class Simulation:
             Offsets to use in predictions feeding into the conditional
             distributions.
 
+        sample_weights: array, shape (n_samples, )
+            Sample weights used when fitting each model. Each resampled row
+            keeps its weight.
+
         Returns
         -------
 
@@ -133,10 +139,9 @@ class Simulation:
         models = []
         for _ in range(n_sim):
             idxs = np.random.choice(X.shape[0], X.shape[0])
-            if offset:
-                offset_boot = offset_boot[idxs]
-            else:
-                offset_boot = None
+            # Per-row arrays must be resampled with the same indices as X.
+            offset_boot = None if offset is None else offset[idxs]
+            weights_boot = None if sample_weights is None else sample_weights[idxs]
             model = self.glm.clone()
             if self.glm.formula:
                 X_boot = X.iloc[idxs]
@@ -144,10 +149,13 @@ class Simulation:
                     X_boot,
                     formula=self.glm.formula,
                     offset=offset_boot,
+                    sample_weights=weights_boot,
                     validate_intercept=False,
                 )
             else:
                 X_boot, y_boot = X[idxs], y[idxs]
-                model.fit(X_boot, y_boot, offset=offset_boot)
+                model.fit(
+                    X_boot, y_boot, offset=offset_boot, sample_weights=weights_boot
+                )
             models.append(model)
         return models
