@@ -58,3 +58,19 @@ def test_sample_moments(
     r_squared = r**2
     z_variance = (r_squared.mean() - 1) / (r_squared.std() / np.sqrt(N_DRAWS))
     assert abs(z_variance) < MAX_Z
+
+
+@pytest.mark.parametrize(
+    "family, mu",
+    [
+        (Gaussian(), np.linspace(-5.0, 5.0, 11)),
+        (Bernoulli(), np.linspace(0.01, 0.99, 11)),
+        (Poisson(), np.linspace(0.1, 1000.0, 11)),
+        (QuasiPoisson(), np.linspace(0.1, 1000.0, 11)),
+        (Gamma(), np.linspace(0.1, 1000.0, 11)),
+        (Exponential(), np.linspace(0.1, 1000.0, 11)),
+    ],
+    ids=lambda v: type(v).__name__ if isinstance(v, ExponentialFamily) else "",
+)
+def test_link_inverts_inv_link(family: ExponentialFamily, mu: np.ndarray) -> None:
+    np.testing.assert_allclose(family.inv_link(family.link(mu)), mu)

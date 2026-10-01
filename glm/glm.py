@@ -36,6 +36,12 @@ from glm.utils import (
     default_y_name,
 )
 
+NON_FINITE_ESTIMATES_MESSAGE = (
+    "Fitting failed: the coefficient estimates are not finite. This can happen "
+    "when the maximum likelihood estimate does not exist, e.g. a binary response "
+    "that is all zeros or all ones, or one perfectly separated by the predictors."
+)
+
 
 class GLM:
     """A generalized linear model.
@@ -271,11 +277,6 @@ class GLM:
         check_no_missing_values("y", y)
         if validate_intercept:
             check_intercept(X)
-        if warm_start is None:
-            initial_intercept = np.mean(y)
-            warm_start = np.zeros(X.shape[1])
-            warm_start[0] = initial_intercept
-        β = warm_start
         if offset is None:
             offset = np.zeros(X.shape[0])
         check_offset(y, offset)
@@ -286,6 +287,20 @@ class GLM:
         check_no_missing_values("sample_weights", sample_weights)
 
         family = self.family
+        if warm_start is None:
+            # Start from the intercept-only model: its estimate of the mean is
+            # the weighted mean response, so its intercept is that mean on the
+            # linear predictor scale, net of the average offset.
+            ȳ = np.average(y, weights=sample_weights)
+            with np.errstate(divide="ignore"):
+                intercept = family.link(np.array([ȳ]))[0]
+            # E.g. an all-zero Poisson or binary response: the intercept-only
+            # estimate is infinite, so no finite estimate can exist.
+            if not np.isfinite(intercept):
+                raise ValueError(NON_FINITE_ESTIMATES_MESSAGE)
+            warm_start = np.zeros(X.shape[1])
+            warm_start[0] = intercept - np.average(offset, weights=sample_weights)
+        β = warm_start
         η = X @ β + offset
         μ = family.inv_link(η)
         dμ = family.d_inv_link(η, μ)
@@ -311,6 +326,8 @@ class GLM:
             )
             n_iter += 1
 
+        if not np.all(np.isfinite(β)):
+            raise ValueError(NON_FINITE_ESTIMATES_MESSAGE)
         self.coef_ = β
         self.deviance_ = family.deviance(y, μ)
         self.n = float(np.sum(sample_weights))

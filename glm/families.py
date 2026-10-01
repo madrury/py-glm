@@ -18,11 +18,14 @@ from glm.types import (
 
 
 class ExponentialFamily(ABC):
-    """An ExponentialFamily must implement at least four methods and define one
+    """An ExponentialFamily must implement the methods below and define one
     attribute.
 
     Methods
     -------
+    link:
+        The link function, mapping the mean to the linear predictor.
+
     inv_link:
         The inverse link function.
 
@@ -46,6 +49,10 @@ class ExponentialFamily(ABC):
     """
 
     has_dispersion: ClassVar[bool]
+
+    @abstractmethod
+    def link(self, mu: MeanVector) -> LinearPredictor:
+        pass
 
     @abstractmethod
     def inv_link(self, eta: LinearPredictor) -> MeanVector:
@@ -86,6 +93,9 @@ class Gaussian(ExponentialFamily):
 
     has_dispersion = True
 
+    def link(self, mu: MeanVector) -> LinearPredictor:
+        return mu
+
     def inv_link(self, eta: LinearPredictor) -> MeanVector:
         return eta
 
@@ -117,6 +127,9 @@ class Bernoulli(ExponentialFamily):
     """
 
     has_dispersion = False
+
+    def link(self, mu: MeanVector) -> LinearPredictor:
+        return np.log(mu / (1 - mu))
 
     def inv_link(self, eta: LinearPredictor) -> MeanVector:
         return 1 / (1 + np.exp(-eta))
@@ -154,6 +167,9 @@ class QuasiPoisson(ExponentialFamily):
     """
 
     has_dispersion = True
+
+    def link(self, mu: MeanVector) -> LinearPredictor:
+        return np.log(mu)
 
     def inv_link(self, eta: LinearPredictor) -> MeanVector:
         return np.exp(eta)
@@ -206,6 +222,9 @@ class Gamma(ExponentialFamily):
     """
 
     has_dispersion = True
+
+    def link(self, mu: MeanVector) -> LinearPredictor:
+        return np.log(mu)
 
     def inv_link(self, eta: LinearPredictor) -> MeanVector:
         return np.exp(eta)
