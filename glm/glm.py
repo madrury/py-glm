@@ -292,8 +292,12 @@ class GLM:
             # the weighted mean response, so its intercept is that mean on the
             # linear predictor scale, net of the average offset.
             ȳ = np.average(y, weights=sample_weights)
+            # The intercept-only model fits the same mean, ȳ, for every
+            # observation, so its linear predictor is constant: take the first
+            # element.
+            μ_null = np.full(X.shape[0], ȳ)
             with np.errstate(divide="ignore"):
-                intercept = family.link(np.array([ȳ]))[0]
+                intercept = family.link(μ_null)[0]
             # E.g. an all-zero Poisson or binary response: the intercept-only
             # estimate is infinite, so no finite estimate can exist.
             if not np.isfinite(intercept):
