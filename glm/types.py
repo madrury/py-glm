@@ -71,3 +71,8 @@ type PValueVector = npt.NDArray[np.float64]
 
 type Deviance = float
 """A (possibly penalized) deviance."""
+
+# Simulation.
+type SimulatedResponses = npt.NDArray[np.float64]
+"""Responses simulated from a fit model, shape (n_sim, n). Each row is one
+simulated response vector, so iterating yields one replicate at a time."""
