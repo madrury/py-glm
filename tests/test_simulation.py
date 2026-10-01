@@ -92,3 +92,66 @@ def test_non_parametric_bootstrap_resamples_weights_with_rows(
     for boot in models:
         assert boot.coef_ is not None
         assert np.all(np.abs(boot.coef_ - model.coef_) < 0.5)
+
+
+@pytest.fixture
+def array_model(df: pd.DataFrame) -> tuple[GLM, np.ndarray, np.ndarray]:
+    X = np.column_stack([np.ones(len(df)), df["x"]])
+    y = df["y"].to_numpy()
+    return GLM(Poisson()).fit(X, y), X, y
+
+
+# Each public method, called with valid data for an array model, plus overrides.
+SIMULATION_METHODS = {
+    "sample": lambda sim, X, y, **kw: sim.sample(X, **kw),
+    "parametric_bootstrap": lambda sim, X, y, **kw: sim.parametric_bootstrap(X, **kw),
+    "non_parametric_bootstrap": lambda sim, X, y, **kw: sim.non_parametric_bootstrap(
+        X, y, **kw
+    ),
+}
+
+
+def test_unfit_model_raises() -> None:
+    with pytest.raises(ValueError, match="require a fit model"):
+        Simulation(GLM(Poisson()))
+
+
+@pytest.mark.parametrize("method", SIMULATION_METHODS)
+@pytest.mark.parametrize("n_sim", [0, -1, 2.5, True])
+def test_invalid_n_sim_raises(
+    array_model: tuple[GLM, np.ndarray, np.ndarray], method: str, n_sim: object
+) -> None:
+    model, X, y = array_model
+    with pytest.raises(ValueError, match="n_sim must be a positive integer"):
+        SIMULATION_METHODS[method](Simulation(model), X, y, n_sim=n_sim)
+
+
+@pytest.mark.parametrize("method", SIMULATION_METHODS)
+def test_array_model_requires_array(
+    array_model: tuple[GLM, np.ndarray, np.ndarray], method: str
+) -> None:
+    model, X, y = array_model
+    with pytest.raises(TypeError, match="X must be a numpy array"):
+        SIMULATION_METHODS[method](Simulation(model), pd.DataFrame(X), y, n_sim=2)
+
+
+@pytest.mark.parametrize("method", SIMULATION_METHODS)
+def test_formula_model_requires_data_frame(df: pd.DataFrame, method: str) -> None:
+    model = GLM(Poisson()).fit(df, formula="y ~ x")
+    X = np.column_stack([np.ones(len(df)), df["x"]])
+    with pytest.raises(TypeError, match="X must be a DataFrame"):
+        SIMULATION_METHODS[method](Simulation(model), X, None, n_sim=2)
+
+
+def test_non_parametric_bootstrap_array_model_requires_y(
+    array_model: tuple[GLM, np.ndarray, np.ndarray],
+) -> None:
+    model, X, _ = array_model
+    with pytest.raises(TypeError, match="y must be a numpy array"):
+        Simulation(model).non_parametric_bootstrap(X, n_sim=2)
+
+
+def test_non_parametric_bootstrap_formula_model_rejects_y(df: pd.DataFrame) -> None:
+    model = GLM(Poisson()).fit(df, formula="y ~ x")
+    with pytest.raises(ValueError, match="y must not be supplied"):
+        Simulation(model).non_parametric_bootstrap(df, df["y"].to_numpy(), n_sim=2)

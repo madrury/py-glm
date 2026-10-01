@@ -1,4 +1,5 @@
 import numpy as np
+import pandas as pd
 
 from glm.types import SimulatedResponses
 
@@ -17,7 +18,8 @@ class Simulation:
     """
 
     def __init__(self, glm):
-        # TODO: Should probably check if fit first.
+        if glm.coef_ is None:
+            raise ValueError("Simulations require a fit model.")
         self.glm = glm
 
     def sample(self, X, n_sim=100, offset=None) -> SimulatedResponses:
@@ -48,6 +50,8 @@ class Simulation:
             The sampled y values. Each row is one simulated response vector,
             so iterating over simulations yields one replicate at a time.
         """
+        self._check_n_sim(n_sim)
+        self._check_X(X)
         simulations = np.empty(shape=(n_sim, X.shape[0]))
         preds = self.glm.predict(X, offset=offset)
         for i in range(n_sim):
@@ -81,6 +85,8 @@ class Simulation:
         models:
             The list of fit models.
         """
+        self._check_n_sim(n_sim)
+        self._check_X(X)
         simulations = self.sample(X, n_sim, offset=offset)
         if self.glm.X_spec is not None:
             X = self.glm._make_rhs_matrix(X)
@@ -136,6 +142,9 @@ class Simulation:
         models:
             The list of fit models.
         """
+        self._check_n_sim(n_sim)
+        self._check_X(X)
+        self._check_y(y)
         models = []
         for _ in range(n_sim):
             idxs = np.random.choice(X.shape[0], X.shape[0])
@@ -159,3 +168,35 @@ class Simulation:
                 )
             models.append(model)
         return models
+
+    def _check_n_sim(self, n_sim):
+        # bool is a subclass of int, but True is not a meaningful n_sim.
+        is_int = isinstance(n_sim, (int, np.integer)) and not isinstance(n_sim, bool)
+        if not is_int or n_sim < 1:
+            raise ValueError(f"n_sim must be a positive integer, got {n_sim!r}.")
+
+    def _check_X(self, X):
+        if self.glm.X_spec is not None:
+            if not isinstance(X, pd.DataFrame):
+                raise TypeError(
+                    f"X must be a DataFrame for a model fit with a formula, "
+                    f"got a {type(X)}"
+                )
+        elif not isinstance(X, np.ndarray):
+            raise TypeError(
+                f"X must be a numpy array for a model fit without a formula, "
+                f"got a {type(X)}"
+            )
+
+    def _check_y(self, y):
+        if self.glm.X_spec is not None:
+            if y is not None:
+                raise ValueError(
+                    "y must not be supplied for a model fit with a formula, as "
+                    "the response is taken from the formula."
+                )
+        elif not isinstance(y, np.ndarray):
+            raise TypeError(
+                f"y must be a numpy array for a model fit without a formula, "
+                f"got a {type(y)}"
+            )
