@@ -57,10 +57,13 @@ def test_fit_with_missing_offset_or_weights_raises(
     data: tuple[np.ndarray, np.ndarray], argument: str
 ) -> None:
     X, y = data
-    values = np.zeros(len(y)) if argument == "offset" else np.ones(len(y))
-    values[3] = np.nan
+    offset, sample_weights = np.zeros(len(y)), np.ones(len(y))
+    if argument == "offset":
+        offset[3] = np.nan
+    else:
+        sample_weights[3] = np.nan
     with pytest.raises(ValueError, match=f"{argument} contains missing"):
-        GLM(Poisson()).fit(X, y, **{argument: values})
+        GLM(Poisson()).fit(X, y, offset=offset, sample_weights=sample_weights)
 
 
 def test_predict_with_missing_offset_raises(

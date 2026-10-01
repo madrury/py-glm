@@ -2,7 +2,6 @@ import numpy as np
 import pytest
 import scipy.stats as sts
 import statsmodels.api as sm
-import statsmodels
 from glm.glm import GLM
 from glm.families import Gaussian, Bernoulli, Poisson, Gamma
 from generate_data import (
@@ -98,7 +97,7 @@ def test_poisson_regression(seed):
     pr = GLM(family=Poisson())
     pr.fit(X, y, tol=FIT_TOL)
     assert_near_truth(pr, parameters)
-    mod = statsmodels.discrete.discrete_model.Poisson(y, X)
+    mod = sm.Poisson(y, X)
     res = mod.fit(disp=0)
     assert_matches_statsmodels(pr, res)
 
@@ -119,9 +118,7 @@ def test_gamma_regression(seed):
     gr = GLM(family=Gamma())
     gr.fit(X, y, tol=FIT_TOL)
     assert_near_truth(gr, parameters)
-    gamma_model = sm.GLM(
-        y, X, family=sm.families.Gamma(link=statsmodels.genmod.families.links.Log())
-    )
+    gamma_model = sm.GLM(y, X, family=sm.families.Gamma(link=sm.families.links.Log()))
     # We estimate the dispersion from the deviance; statsmodels defaults to
     # Pearson's chi-squared, so ask it for the deviance-based estimate.
     res = gamma_model.fit(scale="dev")
