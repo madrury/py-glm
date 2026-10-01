@@ -90,23 +90,15 @@ class Simulation:
         simulations = self.sample(X, n_sim, offset=offset)
         if self.glm.X_spec is not None:
             X = self.glm._make_rhs_matrix(X)
-        models = []
-        for i in range(n_sim):
-            model = self.glm.clone()
-            model.fit(
+        return [
+            self._fit_replicate(
                 X,
                 simulations[i, :],
                 offset=offset,
-                X_names=self.glm.X_names,
-                y_name=self.glm.y_name,
                 validate_intercept=validate_intercept,
             )
-            # Fit on the design matrix, as the simulated responses have no
-            # column in X, but keep the formula so the bootstrap models can
-            # make predictions from data frames.
-            model.formula, model.X_spec = self.glm.formula, self.glm.X_spec
-            models.append(model)
-        return models
+            for i in range(n_sim)
+        ]
 
     def non_parametric_bootstrap(
         self, X, y=None, n_sim=100, offset=None, sample_weights=None
@@ -145,29 +137,77 @@ class Simulation:
         self._check_n_sim(n_sim)
         self._check_X(X)
         self._check_y(y)
+        # Encode a formula model's data once, with the specs learned when
+        # fitting the original model. Re-learning them on each resample could
+        # drop a rare category's column, or change the reference level or a
+        # stateful transform such as center(x), so that replicates would
+        # estimate different quantities.
+        if self.glm.X_spec is not None:
+            design = self.glm._make_rhs_matrix(X)
+            response = self.glm._make_lhs_vector(X)
+        else:
+            design, response = X, y
+        n = design.shape[0]
         models = []
         for _ in range(n_sim):
-            idxs = np.random.choice(X.shape[0], X.shape[0])
+            idxs = np.random.choice(n, n)
+            self._check_estimable(design[idxs])
             # Per-row arrays must be resampled with the same indices as X.
-            offset_boot = None if offset is None else offset[idxs]
-            weights_boot = None if sample_weights is None else sample_weights[idxs]
-            model = self.glm.clone()
-            if self.glm.formula:
-                X_boot = X.iloc[idxs]
-                model.fit(
-                    X_boot,
-                    formula=self.glm.formula,
-                    offset=offset_boot,
-                    sample_weights=weights_boot,
-                    validate_intercept=False,
+            models.append(
+                self._fit_replicate(
+                    design[idxs],
+                    response[idxs],
+                    offset=None if offset is None else offset[idxs],
+                    sample_weights=(
+                        None if sample_weights is None else sample_weights[idxs]
+                    ),
+                    validate_intercept=self.glm.X_spec is None,
                 )
-            else:
-                X_boot, y_boot = X[idxs], y[idxs]
-                model.fit(
-                    X_boot, y_boot, offset=offset_boot, sample_weights=weights_boot
-                )
-            models.append(model)
+            )
         return models
+
+    def _check_estimable(self, design):
+        """Raise if an unpenalized model cannot be fit to a resampled design.
+
+        A resample may, for example, contain no observations of a rare category,
+        leaving its column all zero, so its coefficient cannot be estimated.
+        """
+        # A non-zero ridge penalty renders all models estimable.
+        if self.glm.alpha > 0:
+            return
+        empty = np.all(design == 0, axis=0)
+        if np.any(empty):
+            names = [name for name, e in zip(self.glm.X_names, empty) if e]
+            raise ValueError(
+                f"A bootstrap resample has no observations for design columns "
+                f"{names}, so their coefficients cannot be estimated. This "
+                f"happens with rare categories; consider merging them."
+            )
+        if np.linalg.matrix_rank(design) < design.shape[1]:
+            raise ValueError(
+                "A bootstrap resample's design matrix is rank deficient, so the "
+                "coefficients cannot be estimated. This happens with rare "
+                "categories or near-collinear predictors."
+            )
+
+    def _fit_replicate(self, design, response, **fit_kwargs):
+        """Fit a copy of the model to one bootstrap replicate.
+
+        Replicates are always fit on a design matrix, but keep the original
+        model's names, formula and specs, so that they can be summarized, and
+        make predictions from data frames, like the original model.
+        """
+        model = self.glm.clone()
+        model.fit(
+            design,
+            response,
+            X_names=self.glm.X_names,
+            y_name=self.glm.y_name,
+            **fit_kwargs,
+        )
+        model.formula = self.glm.formula
+        model.X_spec, model.y_spec = self.glm.X_spec, self.glm.y_spec
+        return model
 
     def _check_n_sim(self, n_sim):
         # bool is a subclass of int, but True is not a meaningful n_sim.

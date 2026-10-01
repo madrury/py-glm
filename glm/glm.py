@@ -94,6 +94,10 @@ class GLM:
         categorical levels and stateful transforms fit on the training data.
         Used to encode new data consistently when making predictions.
 
+    y_spec: formulaic.ModelSpec
+        The learned mapping from a data frame to the response vector, from the
+        left hand side of the formula.
+
     X_names: List[str]
         Names for the predictors.
 
@@ -129,6 +133,7 @@ class GLM:
         self.alpha = alpha
         self.formula: Formula | None = None
         self.X_spec: DesignSpec | None = None
+        self.y_spec: DesignSpec | None = None
         self.X_names: list[str] | None = None
         self.y_name: str | None = None
         self.coef_: CoefficientVector | None = None
@@ -221,6 +226,7 @@ class GLM:
                 )
             self.formula = formula
             self.X_spec = matrices.rhs.model_spec
+            self.y_spec = matrices.lhs.model_spec
             self.X_names = list(matrices.rhs.model_spec.column_names)
             self.y_name = matrices.lhs.model_spec.column_names[0]
             design_matrix: DesignMatrix = np.asarray(matrices.rhs)
@@ -522,3 +528,11 @@ class GLM:
             self.X_spec.get_model_matrix(X, output="numpy", na_action="raise")
         )
         return design_matrix
+
+    def _make_lhs_vector(self, X: DesignFrame) -> ResponseVector:
+        if self.y_spec is None:
+            raise ValueError("Model was not fit with a formula.")
+        response: ResponseVector = np.asarray(
+            self.y_spec.get_model_matrix(X, output="numpy", na_action="raise")
+        ).squeeze(axis=1)
+        return response

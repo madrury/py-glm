@@ -155,3 +155,62 @@ def test_non_parametric_bootstrap_formula_model_rejects_y(df: pd.DataFrame) -> N
     model = GLM(Poisson()).fit(df, formula="y ~ x")
     with pytest.raises(ValueError, match="y must not be supplied"):
         Simulation(model).non_parametric_bootstrap(df, df["y"].to_numpy(), n_sim=2)
+
+
+def test_non_parametric_bootstrap_formula_model_uses_training_specs(
+    df: pd.DataFrame,
+) -> None:
+    model = GLM(Poisson()).fit(df, formula="y ~ center(x) + C(g)")
+    assert model.coef_ is not None
+    models = Simulation(model).non_parametric_bootstrap(df, n_sim=N_SIM)
+    for boot in models:
+        # Replicates share the original's specs, rather than re-learning
+        # category levels and centering constants from their resample.
+        assert boot.X_spec is model.X_spec and boot.y_spec is model.y_spec
+        assert boot.X_names == model.X_names
+        assert boot.coef_ is not None
+        assert boot.coef_.shape == model.coef_.shape
+        assert boot.predict(df).shape == (len(df),)
+
+
+@pytest.fixture
+def rare_category_df(df: pd.DataFrame) -> pd.DataFrame:
+    # Category "c" appears once, so many resamples contain no "c" rows.
+    df = df.copy()
+    df["g"] = "a"
+    df.loc[df.index[: len(df) // 2], "g"] = "b"
+    df.loc[df.index[-1], "g"] = "c"
+    return df
+
+
+def test_non_parametric_bootstrap_rare_category_raises(
+    rare_category_df: pd.DataFrame,
+) -> None:
+    model = GLM(Poisson()).fit(rare_category_df, formula="y ~ x + C(g)")
+    with pytest.raises(ValueError, match=r"no observations .* \['C\(g\)\[T.c\]'\]"):
+        Simulation(model).non_parametric_bootstrap(rare_category_df, n_sim=50)
+
+
+def test_non_parametric_bootstrap_rare_category_ridge(
+    rare_category_df: pd.DataFrame,
+) -> None:
+    # The ridge penalty keeps every coefficient estimable.
+    model = GLM(Poisson(), alpha=1.0).fit(rare_category_df, formula="y ~ x + C(g)")
+    assert model.coef_ is not None
+    models = Simulation(model).non_parametric_bootstrap(rare_category_df, n_sim=50)
+    for boot in models:
+        assert boot.coef_ is not None
+        assert boot.coef_.shape == model.coef_.shape
+
+
+def test_non_parametric_bootstrap_rank_deficient_resample_raises(
+    df: pd.DataFrame,
+) -> None:
+    # This column equals the intercept, except in one row. Resamples without
+    # that row are rank deficient, though no column is all zero.
+    almost_intercept = np.ones(len(df))
+    almost_intercept[-1] = 0.0
+    X = np.column_stack([np.ones(len(df)), df["x"], almost_intercept])
+    model = GLM(Poisson()).fit(X, df["y"].to_numpy())
+    with pytest.raises(ValueError, match="rank deficient"):
+        Simulation(model).non_parametric_bootstrap(X, df["y"].to_numpy(), n_sim=50)
