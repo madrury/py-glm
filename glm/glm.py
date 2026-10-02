@@ -151,7 +151,7 @@ class GLM:
         check_standardization(standardize)
         self.family = family
         self.alpha = alpha
-        self.standardize = standardize
+        self.standardize: Standardization = standardize
         self.formula: Formula | None = None
         self.X_spec: DesignSpec | None = None
         self.y_spec: DesignSpec | None = None

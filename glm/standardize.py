@@ -74,6 +74,7 @@ class Standardizer:
         means = np.average(X, axis=0, weights=weights)
         sds = np.sqrt(np.average((X - means) ** 2, axis=0, weights=weights))
 
+        # Construct a mask indicating which columns to standardize.
         has_intercept = has_intercept_column(X)
         transformed = np.full(X.shape[1], self.standardize != "none")
         transformed &= sds > 0
@@ -83,6 +84,8 @@ class Standardizer:
         if has_intercept:
             transformed[0] = False
 
+        # Only center when the model contains an intercept term, otherwise
+        # centering does not leave predictions invariant.
         centered = transformed & has_intercept
         self.centers_ = np.where(centered, means, 0.0)
         self.scales_ = np.where(transformed, sds, 1.0)
@@ -98,8 +101,16 @@ class Standardizer:
         coefficients for the original columns, which give the same linear
         predictor."""
         centers, scales = self._fitted()
-        # Σ γⱼ (xⱼ - mⱼ) / sⱼ = Σ (γⱼ / sⱼ) xⱼ - Σ γⱼ mⱼ / sⱼ. Columns are only
-        # centered when column 0 is an intercept, which absorbs the last term.
+        # In terms of the original columns, the standardized linear predictor is
+        #
+        #   Σⱼ γⱼ (xⱼ - mⱼ) / sⱼ = Σⱼ (γⱼ / sⱼ) xⱼ - Σⱼ (γⱼ / sⱼ) mⱼ,
+        #
+        # so each coefficient is βⱼ = γⱼ / sⱼ, and what remains is the constant
+        # -Σⱼ βⱼ mⱼ. Column 0 is never centered (m₀ = 0), so the constant sums
+        # over the other columns. Since columns are only centered when column 0
+        # is an intercept (x₀ = 1), the constant can be folded into the
+        # intercept's coefficient; without one, every mⱼ is zero, and so is the
+        # constant.
         β = γ / scales
         β[0] -= np.sum(β[1:] * centers[1:])
         return β
@@ -108,6 +119,9 @@ class Standardizer:
         """Convert coefficients for the original columns into coefficients for
         the standardized columns, which give the same linear predictor."""
         centers, scales = self._fitted()
+        # The inverse of coef_to_original: γⱼ = βⱼ sⱼ, and the intercept's
+        # coefficient takes back the constant, Σⱼ βⱼ mⱼ, that centering moved
+        # into it.
         γ = β * scales
         γ[0] += np.sum(β[1:] * centers[1:])
         return γ
