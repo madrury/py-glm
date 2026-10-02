@@ -21,7 +21,7 @@ def has_intercept_column(X: DesignMatrix) -> bool:
 
 def check_intercept(X: DesignMatrix) -> None:
     if not has_intercept_column(X):
-        raise ValueError("First column in matrix X is not an intercept.")
+        raise ValueError("Column 0 of X, X[:, 0], is not an intercept.")
 
 
 def has_missing_values(v: npt.NDArray[Any]) -> bool:

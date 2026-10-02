@@ -141,7 +141,7 @@ class Simulation:
             distributions.
 
         validate_intercept: bool
-            Check that the first column of each replicate's design matrix is an
+            Check that column 0 of each replicate's design matrix is an
             intercept. Set to False for models without one, e.g. a formula
             such as "y ~ x - 1".
 
@@ -202,7 +202,7 @@ class Simulation:
             keeps its weight.
 
         validate_intercept: bool
-            Check that the first column of each replicate's design matrix is an
+            Check that column 0 of each replicate's design matrix is an
             intercept. Set to False for models without one, e.g. a formula
             such as "y ~ x - 1".
 

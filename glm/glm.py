@@ -124,7 +124,7 @@ class GLM:
     Notes
     -----
     Instead of supplying a `fit_intercept` argument, we have instead assumed the
-    programmer has included a column of ones as the *first* column X. The fit
+    programmer has included a column of ones as column 0 of X, X[:, 0]. The fit
     method will throw an exception if this is not the case.
     """
 
@@ -201,8 +201,8 @@ class GLM:
             convergence.
 
         validate_intercept: bool
-            Should we defensively check that the first column in the deign
-            matrix is an intercept? Defaults to True.
+            Should we defensively check that column 0 of the design matrix,
+            X[:, 0], is an intercept? Defaults to True.
 
         Returns
         -------

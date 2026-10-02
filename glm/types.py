@@ -13,7 +13,7 @@ import pandas as pd
 
 # Model inputs.
 type DesignMatrix = npt.NDArray[np.float64]
-"""The design matrix X, shape (n, p). The first column is the intercept."""
+"""The design matrix X, shape (n, p). Column 0, X[:, 0], is the intercept."""
 
 type DesignFrame = pd.DataFrame
 """A data frame of raw variables, turned into a design matrix by a formula."""
