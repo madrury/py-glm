@@ -30,6 +30,15 @@
 - **Absolute imports only.** Import within the package as `from glm.utils import
   ...`, never with relative imports (`from .utils import ...`).
 
+## Plotting
+
+- **Axes in, axes out.** Plotting functions take a matplotlib `Axes` as their
+  first argument, wherever possible, and always return it. They never create
+  figures or axes, so the user keeps control of the layout.
+- **No runtime matplotlib import.** Because axes are passed in, the library
+  only needs matplotlib for type annotations: import `Axes` under
+  `typing.TYPE_CHECKING`.
+
 ## Checks
 
 - Type check with `uv run mypy` (strict; configured in `pyproject.toml`).

@@ -513,7 +513,9 @@ class GLM:
         return information
 
     def _d_penalty(self, β: CoefficientVector) -> DevianceGradient:
-        dβ_penalty = β.copy()
+        # Like dβ, the gradient of half the penalty, alpha * sum(β**2), which
+        # excludes the intercept.
+        dβ_penalty = self.alpha * β
         dβ_penalty[0] = 0.0
         return dβ_penalty
 
