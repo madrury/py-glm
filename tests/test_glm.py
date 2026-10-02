@@ -2,9 +2,9 @@ import numpy as np
 import statsmodels.api as sm
 import statsmodels
 from glm.glm import GLM
-from glm.families import Gaussian, Bernoulli, Poisson, Gamma
+from glm.families import Gaussian, Bernoulli, Poisson, Gamma, NegativeBinomial
 from generate_data import (make_linear_regression, make_logistic_regression,
-                           make_poisson_regression, make_gamma_regression)
+                           make_poisson_regression, make_gamma_regression, make_negative_binomial_regression)
 
 N_SAMPLES = 100000
 TOL = 10**(-2)
@@ -98,6 +98,26 @@ def test_gamma_regressions():
 
     for _ in range(N_REGRESSION_TESTS):
         _test_random_gamma_regression()
+
+def test_negative_binomial_regression():
+
+    def _test_random_negative_binomial_regression():
+        n_uncorr_features, n_corr_features, n_drop_features = (
+            generate_regression_hyperparamters())
+        X, y, parameters = make_negative_binomial_regression(
+            n_samples=N_SAMPLES,
+            n_uncorr_features=n_uncorr_features,
+            n_corr_features=n_corr_features,
+            n_drop_features=n_drop_features,
+            coef_range=(-0.1, 0.1))
+        pr = GLM(family=NegativeBinomial())
+        pr.fit(X, y)
+        #assert approx_equal(pr.coef_, parameters)
+        mod = statsmodels.discrete.discrete_model.NegativeBinomial(y, X)
+        res = mod.fit()
+        assert approx_equal(pr.coef_, res.params)
+        assert approx_equal(pr.coef_standard_error_, res.bse)
+
 
 
 def approx_equal(x0, x1, tol=TOL):

@@ -51,6 +51,19 @@ def make_gamma_regression(n_samples=10000,
     y = make_gamma_regression_y(X, parameters)
     return (X, y, parameters)
 
+def make_negative_binomial_regression(n_samples=10000,
+                            n_uncorr_features=10, n_corr_features=10,
+                            n_drop_features=4,
+                            include_intercept=True,
+                            coef_range=(-1, 1)):
+    # need to account for overdispersion, k
+    X = make_correlated_data(
+        n_samples, n_uncorr_features, n_corr_features, include_intercept)
+    parameters = make_regression_coeffs(
+        X, n_drop_features=n_drop_features, coef_range=coef_range)
+    y = make_negative_binomial_regression_y(X, parameters)
+    return (X, y, parameters)
+
 
 def make_uncorrelated_data(n_samples=10000, n_features=25):
     X = np.random.normal(size=(n_samples, n_features))
@@ -102,3 +115,9 @@ def make_gamma_regression_y(X, parameters):
     y_systematic = np.dot(X, parameters)
     mu = np.exp(y_systematic)
     return np.random.exponential(scale=mu, size=X.shape[0])
+
+def make_negative_binomial_regression_y(X, parameters):
+    # need to account for overdispersion, k
+    y_systematic = np.dot(X, parameters)
+    mu = np.exp(y_systematic)
+    return np.random.poisson(lam=mu, size=X.shape[0])
