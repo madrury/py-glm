@@ -3,6 +3,8 @@ import pytest
 
 from glm.families import Bernoulli, ExponentialFamily, Gamma, Gaussian, Poisson
 from glm.glm import GLM
+from glm.standardize import Standardizer
+from glm.types import Standardization
 
 N = 500
 ALPHAS = [0.1, 10.0, 1000.0]
@@ -18,7 +20,7 @@ def X() -> np.ndarray:
 def test_gaussian_ridge_matches_closed_form(X: np.ndarray, alpha: float) -> None:
     rng = np.random.default_rng(154)
     y = X @ np.array([1.0, 2.0, -1.0, 0.5]) + rng.normal(size=N)
-    model = GLM(Gaussian(), alpha=alpha).fit(X, y, tol=1e-12)
+    model = GLM(Gaussian(), alpha=alpha, standardize="none").fit(X, y, tol=1e-12)
     # Minimizes sum((y - X @ β)**2) + alpha * sum(β[1:]**2).
     penalty = alpha * np.eye(X.shape[1])
     penalty[0, 0] = 0.0
@@ -27,25 +29,34 @@ def test_gaussian_ridge_matches_closed_form(X: np.ndarray, alpha: float) -> None
     np.testing.assert_allclose(model.coef_, expected, rtol=1e-8)
 
 
+@pytest.mark.parametrize("standardize", ["none", "continuous"])
 @pytest.mark.parametrize("alpha", ALPHAS)
 @pytest.mark.parametrize(
     "family", [Gaussian(), Bernoulli(), Poisson(), Gamma()], ids=lambda f: repr(f)
 )
 def test_ridge_solves_penalized_score_equations(
-    X: np.ndarray, family: ExponentialFamily, alpha: float
+    X: np.ndarray,
+    family: ExponentialFamily,
+    alpha: float,
+    standardize: Standardization,
 ) -> None:
-    rng = np.random.default_rng(154)
-    μ = family.inv_link(X @ np.array([0.2, 0.5, -0.3, 0.1]))
+    X = X * np.array([1.0, 1.0, 10.0, 0.1])  # Columns on different scales.
+    μ = family.inv_link(X @ np.array([0.2, 0.5, -0.03, 1.0]))
     y = family.sample(μ, dispersion=0.5 if family.has_dispersion else 1.0)
-    model = GLM(family, alpha=alpha).fit(X, y, tol=1e-14, max_iter=1000)
+    model = GLM(family, alpha=alpha, standardize=standardize).fit(
+        X, y, tol=1e-14, max_iter=1000
+    )
     assert model.coef_ is not None
     η = X @ model.coef_
     μ_hat = family.inv_link(η)
-    # At the minimum of deviance + alpha * sum(β[1:]**2), half the deviance's
-    # gradient, -X' (y - μ) dμ / V(μ), balances half the penalty's, alpha * β,
-    # for every coefficient except the unpenalized intercept.
+    # The penalty is alpha * sum((s * β)[1:]**2), with s the column scales (all
+    # ones without standardizing). At its minimum, half the deviance's
+    # gradient, -X' (y - μ) dμ / V(μ), balances half the penalty's,
+    # alpha * s**2 * β, for every coefficient except the unpenalized intercept.
+    scales = Standardizer(standardize).fit(X).scales_
+    assert scales is not None
     score = X.T @ ((y - μ_hat) * family.d_inv_link(η, μ_hat) / family.variance(μ_hat))
-    penalty_gradient = alpha * model.coef_
+    penalty_gradient = alpha * scales**2 * model.coef_
     penalty_gradient[0] = 0.0
     np.testing.assert_allclose(score, penalty_gradient, atol=1e-6 * max(1.0, alpha))
 
@@ -55,7 +66,7 @@ def test_ridge_shrinks_toward_zero(X: np.ndarray) -> None:
     y = X @ np.array([1.0, 2.0, -1.0, 0.5]) + rng.normal(size=N)
     norms = []
     for alpha in [0.0, 1.0, 100.0, 1e4, 1e6]:
-        model = GLM(Gaussian(), alpha=alpha).fit(X, y)
+        model = GLM(Gaussian(), alpha=alpha, standardize="none").fit(X, y)
         assert model.coef_ is not None
         norms.append(np.sum(model.coef_[1:] ** 2))
     assert all(a > b for a, b in zip(norms, norms[1:]))
@@ -71,7 +82,33 @@ def test_ridge_without_intercept_penalizes_every_coefficient(
     X = X[:, 1:]
     rng = np.random.default_rng(154)
     y = X @ np.array([2.0, -1.0, 0.5]) + rng.normal(size=N)
-    model = GLM(Gaussian(), alpha=alpha).fit(X, y, tol=1e-12, validate_intercept=False)
+    model = GLM(Gaussian(), alpha=alpha, standardize="none").fit(
+        X, y, tol=1e-12, validate_intercept=False
+    )
     expected = np.linalg.solve(X.T @ X + alpha * np.eye(X.shape[1]), X.T @ y)
     assert model.coef_ is not None
     np.testing.assert_allclose(model.coef_, expected, rtol=1e-8)
+
+
+@pytest.mark.parametrize("standardize", ["none", "continuous"])
+@pytest.mark.parametrize("family", [Gaussian(), Poisson()], ids=lambda f: repr(f))
+def test_ridge_without_intercept_solves_penalized_score_equations(
+    X: np.ndarray, family: ExponentialFamily, standardize: Standardization
+) -> None:
+    alpha = 10.0
+    X = X[:, 1:] * np.array([1.0, 10.0, 0.1])  # No intercept; mixed scales.
+    μ = family.inv_link(X @ np.array([0.5, -0.03, 1.0]))
+    y = family.sample(μ, dispersion=0.5 if family.has_dispersion else 1.0)
+    model = GLM(family, alpha=alpha, standardize=standardize).fit(
+        X, y, tol=1e-14, max_iter=1000, validate_intercept=False
+    )
+    assert model.coef_ is not None
+    η = X @ model.coef_
+    μ_hat = family.inv_link(η)
+    scales = Standardizer(standardize).fit(X).scales_
+    assert scales is not None
+    score = X.T @ ((y - μ_hat) * family.d_inv_link(η, μ_hat) / family.variance(μ_hat))
+    # Every coefficient is penalized, column 0 included.
+    np.testing.assert_allclose(
+        score, alpha * scales**2 * model.coef_, atol=1e-6 * alpha
+    )

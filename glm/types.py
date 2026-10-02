@@ -4,7 +4,7 @@ Shapes are given in terms of n, the number of observations, and p, the number
 of coefficients in the model (including the intercept).
 """
 
-from typing import Any
+from typing import Any, Literal
 
 import formulaic
 import numpy as np
@@ -40,6 +40,19 @@ type SampleWeights = npt.NDArray[np.float64]
 type CoefficientMask = npt.NDArray[np.bool_]
 """Which coefficients a penalty applies to, shape (p,): all of them, except
 the intercept when the model has one."""
+
+type Standardization = Literal["none", "continuous", "all"]
+"""Which design matrix columns to standardize before penalized fitting: none;
+continuous columns only, leaving 0/1 indicator columns unscaled; or all
+columns, as glmnet does. The intercept is never standardized."""
+
+type ColumnCenters = npt.NDArray[np.float64]
+"""The value subtracted from each design matrix column when standardizing,
+shape (p,)."""
+
+type ColumnScales = npt.NDArray[np.float64]
+"""The value each centered design matrix column is divided by when
+standardizing, shape (p,)."""
 
 # Model structure.
 type CoefficientVector = npt.NDArray[np.float64]

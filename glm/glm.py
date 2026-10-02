@@ -6,6 +6,7 @@ import pandas as pd
 import scipy.stats as sts
 
 from glm.families import ExponentialFamily
+from glm.standardize import Standardizer, check_standardization
 from glm.types import (
     CoefficientMask,
     CoefficientVector,
@@ -24,6 +25,7 @@ from glm.types import (
     ResponseVector,
     SampleWeights,
     StandardErrorVector,
+    Standardization,
     VarianceVector,
 )
 from glm.utils import (
@@ -75,8 +77,18 @@ class GLM:
 
     alpha: float, non-negative
         The ridge regularization strength. If non-zero, the loss function
-        minimized is a penalized deviance, where the penalty is alpha *
-        np.sum(model.coef_**2).
+        minimized is a penalized deviance, where the penalty is alpha times
+        the sum of the squared coefficients, excluding the intercept, of the
+        (by default, standardized) columns of the design matrix.
+
+    standardize: "none", "continuous", or "all"
+        Which columns of the design matrix to standardize, to unit standard
+        deviation, before a penalized fit, so that the penalty does not depend
+        on the predictors' units. "continuous" (the default) leaves indicator
+        columns, those of zeros and ones, unscaled; "all" scales them too, as
+        glmnet does. Coefficients are always reported on the original scale.
+        Standardizing does not change unpenalized fits, so it is skipped when
+        alpha is zero.
 
     Attributes
     ----------
@@ -130,9 +142,16 @@ class GLM:
     method will throw an exception if this is not the case.
     """
 
-    def __init__(self, family: ExponentialFamily, alpha: float = 0.0) -> None:
+    def __init__(
+        self,
+        family: ExponentialFamily,
+        alpha: float = 0.0,
+        standardize: Standardization = "continuous",
+    ) -> None:
+        check_standardization(standardize)
         self.family = family
         self.alpha = alpha
+        self.standardize = standardize
         self.formula: Formula | None = None
         self.X_spec: DesignSpec | None = None
         self.y_spec: DesignSpec | None = None
@@ -313,8 +332,16 @@ class GLM:
                 raise ValueError(NON_FINITE_ESTIMATES_MESSAGE)
             warm_start = np.zeros(X.shape[1])
             warm_start[0] = intercept - np.average(offset, weights=sample_weights)
-        β = warm_start
-        η = X @ β + offset
+        # Penalized fits work on standardized columns, so that the penalty does
+        # not depend on the predictors' units. Unpenalized fits are unchanged
+        # by standardizing, so skip it for them.
+        standardizer = None
+        design, β = X, warm_start
+        if self._is_regularized() and self.standardize != "none":
+            standardizer = Standardizer(self.standardize).fit(X, sample_weights)
+            design = standardizer.transform(X)
+            β = standardizer.coef_to_standardized(warm_start)
+        η = design @ β + offset
         μ = family.inv_link(η)
         dμ = family.d_inv_link(η, μ)
         var = family.variance(μ)
@@ -322,12 +349,12 @@ class GLM:
         is_converged = False
         n_iter = 0
         while n_iter < max_iter and not is_converged:
-            η = X @ β + offset
+            η = design @ β + offset
             μ = family.inv_link(η)
             dμ = family.d_inv_link(η, μ)
             var = family.variance(μ)
-            dβ = self._compute_dbeta(X, y, μ, dμ, var, sample_weights)
-            ddβ = self._compute_ddbeta(X, dμ, var, sample_weights)
+            dβ = self._compute_dbeta(design, y, μ, dμ, var, sample_weights)
+            ddβ = self._compute_ddbeta(design, dμ, var, sample_weights)
             if self._is_regularized():
                 dβ = dβ + self._d_penalty(β, penalized_coefficients)
                 ddβ = self._dd_penalty(ddβ, penalized_coefficients)
@@ -341,6 +368,8 @@ class GLM:
             )
             n_iter += 1
 
+        if standardizer is not None:
+            β = standardizer.coef_to_original(β)
         if not np.all(np.isfinite(β)):
             raise ValueError(NON_FINITE_ESTIMATES_MESSAGE)
         self.coef_ = β
@@ -483,10 +512,13 @@ class GLM:
             print(format_string.format(name, est, se))
 
     def __repr__(self) -> str:
-        return f"{type(self).__name__}(family={self.family!r}, alpha={self.alpha!r})"
+        return (
+            f"{type(self).__name__}(family={self.family!r}, alpha={self.alpha!r}, "
+            f"standardize={self.standardize!r})"
+        )
 
     def clone(self) -> Self:
-        return self.__class__(self.family, self.alpha)
+        return self.__class__(self.family, self.alpha, self.standardize)
 
     def _is_fit(self) -> bool:
         return self.coef_ is not None
