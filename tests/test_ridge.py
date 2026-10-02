@@ -1,4 +1,5 @@
 import numpy as np
+import pandas as pd
 import pytest
 
 from glm.families import Bernoulli, ExponentialFamily, Gamma, Gaussian, Poisson
@@ -51,8 +52,9 @@ def test_ridge_solves_penalized_score_equations(
     μ_hat = family.inv_link(η)
     # The penalty is alpha * sum((s * β)[1:]**2), with s the column scales (all
     # ones without standardizing). At its minimum, half the deviance's
-    # gradient, -X' (y - μ) dμ / V(μ), balances half the penalty's,
-    # alpha * s**2 * β, for every coefficient except the unpenalized intercept.
+    # gradient, -X' (y - μ) dμ / V(μ) (the left hand side of the score
+    # equations, see Muller eq. 11), balances half the penalty's, alpha * s**2 *
+    # β, for every coefficient except the unpenalized intercept.
     scales = Standardizer(standardize).fit(X).scales_
     assert scales is not None
     score = X.T @ ((y - μ_hat) * family.d_inv_link(η, μ_hat) / family.variance(μ_hat))
@@ -112,3 +114,47 @@ def test_ridge_without_intercept_solves_penalized_score_equations(
     np.testing.assert_allclose(
         score, alpha * scales**2 * model.coef_, atol=1e-6 * alpha
     )
+
+
+@pytest.fixture
+def df() -> pd.DataFrame:
+    rng = np.random.default_rng(154)
+    df = pd.DataFrame({"x": rng.normal(size=N), "g": rng.choice(["a", "b", "c"], N)})
+    g_effect = df["g"].map({"a": 0.0, "b": 0.5, "c": -0.5})
+    df["y"] = rng.poisson(np.exp(0.5 + 0.3 * df["x"] + g_effect))
+    return df
+
+
+def test_penalized_formula_model_encodes_every_level(df: pd.DataFrame) -> None:
+    model = GLM(Poisson(), alpha=1.0).fit(df, formula="y ~ x + C(g)")
+    assert model.X_names == ["Intercept", "x", "C(g)[a]", "C(g)[b]", "C(g)[c]"]
+
+
+def test_unpenalized_formula_model_drops_a_reference_level(df: pd.DataFrame) -> None:
+    model = GLM(Poisson()).fit(df, formula="y ~ x + C(g)")
+    assert model.X_names == ["Intercept", "x", "C(g)[T.b]", "C(g)[T.c]"]
+
+
+def test_penalized_formula_model_does_not_depend_on_reference_level(
+    df: pd.DataFrame,
+) -> None:
+    # Relabel the levels so they sort in a different order. With a reference
+    # level dropped, the penalty would shrink toward a different baseline and
+    # change the fit; with every level encoded, nothing changes.
+    relabeled = df.assign(g=df["g"].map({"a": "z", "b": "b", "c": "c"}))
+    model = GLM(Poisson(), alpha=10.0)
+    original = model.clone().fit(df, formula="y ~ x + C(g)", tol=1e-12)
+    relabeled_model = model.clone().fit(relabeled, formula="y ~ x + C(g)", tol=1e-12)
+    np.testing.assert_allclose(
+        original.predict(df), relabeled_model.predict(relabeled), rtol=1e-8
+    )
+
+
+def test_penalized_formula_model_predicts_with_every_level(df: pd.DataFrame) -> None:
+    model = GLM(Poisson(), alpha=1.0).fit(df, formula="y ~ x + C(g)")
+    assert model.coef_ is not None
+    # New data with only one level is still encoded with every level's column.
+    new = pd.DataFrame({"x": [0.0, 1.0], "g": ["c", "c"]})
+    intercept, β_x, _, _, β_c = model.coef_
+    expected = np.exp(intercept + β_c + β_x * new["x"].to_numpy())
+    np.testing.assert_allclose(model.predict(new), expected)

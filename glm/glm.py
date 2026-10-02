@@ -193,7 +193,10 @@ class GLM:
         formula: str
             A formula specifying the model.  Used in the case that X is passed
             as a DataFrame. For documentation on model formulas, please see
-            the formulaic library documentation.
+            the formulaic library documentation. For penalized models (alpha
+            > 0), categorical variables are encoded with a column for every
+            level, rather than dropping a reference level, so that the penalty
+            treats all levels alike.
 
         warm_start: array, shape (n_features, )
             Initial values to use for the parameter estimates in the
@@ -238,8 +241,15 @@ class GLM:
                 )
             # Raise on missing values rather than dropping rows, which would
             # silently misalign the data with any offset or sample weights.
+            # Penalized models encode every level of a categorical variable,
+            # rather than dropping a reference level, so that the penalty
+            # treats all levels alike; the penalty keeps the fit well defined.
             matrices = formulaic.model_matrix(
-                formula, X, output="numpy", na_action="raise"
+                formula,
+                X,
+                output="numpy",
+                na_action="raise",
+                ensure_full_rank=not self._is_regularized(),
             )
             if not isinstance(matrices, formulaic.ModelMatrices):
                 raise ValueError(

@@ -1,12 +1,11 @@
 """Standardizing design matrices for penalized fitting.
 
-A ridge penalty is not invariant to the units of the predictors: measuring a
-predictor in kilometres rather than metres makes its coefficient 1000 times
-larger, and so penalizes it far more. Fitting on standardized columns, each
+A ridge/LASSO penalty is not invariant to the units of the predictors: measuring
+a predictor in kilometres rather than metres makes its coefficient 1000 times
+larger, and so it is penalized far more. Fitting on standardized columns, each
 with unit standard deviation, makes the penalty treat predictors evenly. The
-Standardizer encapsulates the transformation, so that the fitting code works
-on the standardized scale while everything user facing stays on the original
-scale.
+Standardizer encapsulates the transformation, so that the fitting code works on
+the standardized scale while everything user facing stays on the original scale.
 """
 
 from typing import Self, get_args
