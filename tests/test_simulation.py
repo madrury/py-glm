@@ -1,10 +1,11 @@
 import numpy as np
 import pandas as pd
 import pytest
+import scipy.stats as sts
 
 from glm.families import Poisson
 from glm.glm import GLM
-from glm.simulation import Simulation
+from glm.simulation import Simulation, coefficient_table
 
 N_SIM = 5
 
@@ -242,3 +243,84 @@ def test_bootstrap_without_intercept(df: pd.DataFrame, bootstrap: str) -> None:
     for boot in models:
         assert boot.coef_ is not None
         assert boot.coef_.shape == (1,)
+
+
+def test_coefficient_table(df: pd.DataFrame) -> None:
+    model = GLM(Poisson()).fit(df, formula="y ~ x + C(g)")
+    models = Simulation(model).parametric_bootstrap(df, n_sim=N_SIM)
+    table = coefficient_table(models)
+    assert table.shape == (N_SIM, len(model.X_names or []))
+    assert list(table.columns) == model.X_names
+    for i, boot in enumerate(models):
+        assert boot.coef_ is not None
+        np.testing.assert_array_equal(table.iloc[i].to_numpy(), boot.coef_)
+
+
+def test_coefficient_table_requires_models() -> None:
+    with pytest.raises(ValueError, match="At least one model"):
+        coefficient_table([])
+
+
+def test_coefficient_table_requires_fit_models(df: pd.DataFrame) -> None:
+    model = GLM(Poisson()).fit(df, formula="y ~ x")
+    with pytest.raises(ValueError, match="must be fit"):
+        coefficient_table([model, GLM(Poisson())])
+
+
+def test_coefficient_table_requires_matching_coefficients(df: pd.DataFrame) -> None:
+    models = [
+        GLM(Poisson()).fit(df, formula="y ~ x"),
+        GLM(Poisson()).fit(df, formula="y ~ x + C(g)"),
+    ]
+    with pytest.raises(ValueError, match="same coefficients"):
+        coefficient_table(models)
+
+
+# A standard deviation estimated from n_sim bootstrap replicates has a relative
+# standard error of about 1 / sqrt(2 * n_sim). We compare each of the model's
+# coefficients, so set the threshold with a Bonferroni bound, as in test_glm.py.
+N_SIM_SE = 400
+N_COEFFICIENTS = 2
+SE_FALSE_FAILURE_RATE = 0.001
+SE_MAX_Z = sts.norm.isf(SE_FALSE_FAILURE_RATE / (2 * N_COEFFICIENTS))
+
+
+def sandwich_standard_errors(
+    model: GLM, X: np.ndarray, y: np.ndarray, offset: np.ndarray
+) -> np.ndarray:
+    """The robust (sandwich) standard errors, which do not rely on the
+    family's variance function being correct."""
+    assert model.information_matrix_ is not None
+    η = X @ model.coef_ + offset
+    μ = model.family.inv_link(η)
+    # Each observation's contribution to the score, the gradient of the
+    # log-likelihood (up to the dispersion, which cancels below).
+    scores = (
+        X
+        * ((y - μ) * model.family.d_inv_link(η, μ) / model.family.variance(μ))[:, None]
+    )
+    bread = np.linalg.inv(model.information_matrix_)
+    meat = scores.T @ scores
+    return np.sqrt(np.diag(bread @ meat @ bread))
+
+
+@pytest.mark.parametrize("bootstrap", BOOTSTRAPS)
+def test_bootstrap_standard_errors(
+    exposure_data: tuple[np.ndarray, np.ndarray, np.ndarray], bootstrap: str
+) -> None:
+    X, y, offset = exposure_data
+    model = GLM(Poisson()).fit(X, y, offset=offset)
+    sim = Simulation(model)
+    # The parametric bootstrap simulates from the fit model, so it estimates
+    # the model-based standard errors. The non-parametric bootstrap resamples
+    # the data, so it estimates the sandwich standard errors, which differ from
+    # the model-based ones by sampling noise in any one dataset.
+    if bootstrap == "parametric_bootstrap":
+        models = sim.parametric_bootstrap(X, n_sim=N_SIM_SE, offset=offset)
+        expected = model.coef_standard_error_
+    else:
+        models = sim.non_parametric_bootstrap(X, y, n_sim=N_SIM_SE, offset=offset)
+        expected = sandwich_standard_errors(model, X, y, offset)
+    ratio = coefficient_table(models).std().to_numpy() / expected
+    z = (ratio - 1) * np.sqrt(2 * N_SIM_SE)
+    assert np.all(np.abs(z) < SE_MAX_Z)

@@ -1,8 +1,11 @@
+from collections.abc import Sequence
+
 import numpy as np
 import pandas as pd
 
 from glm.glm import GLM
 from glm.types import (
+    CoefficientTable,
     DesignFrame,
     DesignMatrix,
     Offset,
@@ -11,6 +14,44 @@ from glm.types import (
     SimulatedResponses,
 )
 from glm.utils import default_X_names
+
+
+def coefficient_table(models: Sequence[GLM]) -> CoefficientTable:
+    """Collect the coefficient estimates of several fit models into a table.
+
+    This is most useful for summarizing bootstrap replicates, for example their
+    standard errors with table.std(), or percentile confidence intervals with
+    table.quantile([0.025, 0.975]).
+
+    Parameters
+    ----------
+
+    models: sequence of GLM
+        Fit models with the same coefficients, such as those returned by
+        Simulation.parametric_bootstrap or Simulation.non_parametric_bootstrap.
+
+    Returns
+    -------
+
+    table: pd.DataFrame, shape (n_models, n_features)
+        One row per model, and one column per coefficient, named by the
+        models' X_names.
+    """
+    if not models:
+        raise ValueError("At least one model is required.")
+    X_names = models[0].X_names
+    rows = []
+    for model in models:
+        if model.coef_ is None:
+            raise ValueError("All models must be fit.")
+        # Stacking models with different coefficients would misalign columns.
+        if model.X_names != X_names:
+            raise ValueError(
+                f"All models must have the same coefficients, but found both "
+                f"{X_names} and {model.X_names}."
+            )
+        rows.append(model.coef_)
+    return pd.DataFrame(np.vstack(rows), columns=X_names)
 
 
 class Simulation:

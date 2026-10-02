@@ -76,3 +76,8 @@ type Deviance = float
 type SimulatedResponses = npt.NDArray[np.float64]
 """Responses simulated from a fit model, shape (n_sim, n). Each row is one
 simulated response vector, so iterating yields one replicate at a time."""
+
+type CoefficientTable = pd.DataFrame
+"""Coefficient estimates from several fit models, such as bootstrap
+replicates: one row per model, and one column per coefficient, named by the
+models' X_names."""
