@@ -37,6 +37,14 @@ type SampleWeights = npt.NDArray[np.float64]
 """Per-observation weights on the deviance, shape (n,)."""
 
 # Penalized fitting.
+type AlphaGrid = npt.NDArray[np.float64]
+"""Ridge penalty strengths along a regularization path, in decreasing order,
+shape (n_alphas,)."""
+
+type TermColumns = dict[str, list[str]]
+"""The names of the penalized coefficients belonging to each term of a model,
+e.g. {"C(g)": ["C(g)[a]", "C(g)[b]"]}, used to plot coefficients in groups."""
+
 type CoefficientMask = npt.NDArray[np.bool_]
 """Which coefficients a penalty applies to, shape (p,): all of them, except
 the intercept when the model has one."""
