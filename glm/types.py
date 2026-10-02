@@ -36,6 +36,11 @@ type Offset = npt.NDArray[np.float64]
 type SampleWeights = npt.NDArray[np.float64]
 """Per-observation weights on the deviance, shape (n,)."""
 
+# Penalized fitting.
+type CoefficientMask = npt.NDArray[np.bool_]
+"""Which coefficients a penalty applies to, shape (p,): all of them, except
+the intercept when the model has one."""
+
 # Model structure.
 type CoefficientVector = npt.NDArray[np.float64]
 """The coefficients β, shape (p,)."""

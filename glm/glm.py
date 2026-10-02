@@ -7,6 +7,7 @@ import scipy.stats as sts
 
 from glm.families import ExponentialFamily
 from glm.types import (
+    CoefficientMask,
     CoefficientVector,
     CovarianceMatrix,
     Deviance,
@@ -32,6 +33,7 @@ from glm.utils import (
     check_offset,
     check_sample_weights,
     has_converged,
+    has_intercept_column,
     default_X_names,
     default_y_name,
 )
@@ -291,6 +293,7 @@ class GLM:
             sample_weights = np.ones(X.shape[0])
         check_sample_weights(y, sample_weights)
         check_no_missing_values("sample_weights", sample_weights)
+        penalized_coefficients = self._penalized_coefficients(X)
 
         family = self.family
         if warm_start is None:
@@ -326,11 +329,13 @@ class GLM:
             dβ = self._compute_dbeta(X, y, μ, dμ, var, sample_weights)
             ddβ = self._compute_ddbeta(X, dμ, var, sample_weights)
             if self._is_regularized():
-                dβ = dβ + self._d_penalty(β)
-                ddβ = self._dd_penalty(ddβ, X)
+                dβ = dβ + self._d_penalty(β, penalized_coefficients)
+                ddβ = self._dd_penalty(ddβ, penalized_coefficients)
             β = β - np.linalg.solve(ddβ, dβ)
             penalized_deviance_previous = penalized_deviance
-            penalized_deviance = family.penalized_deviance(y, μ, self.alpha, β)
+            penalized_deviance = self._penalized_deviance(
+                y, μ, β, penalized_coefficients
+            )
             is_converged = has_converged(
                 penalized_deviance, penalized_deviance_previous, tol
             )
@@ -512,16 +517,39 @@ class GLM:
         information: InformationMatrix = X.T @ (X * working_h_weights)
         return information
 
-    def _d_penalty(self, β: CoefficientVector) -> DevianceGradient:
-        # Like dβ, the gradient of half the penalty, alpha * sum(β**2), which
-        # excludes the intercept.
-        dβ_penalty = self.alpha * β
-        dβ_penalty[0] = 0.0
+    def _penalized_coefficients(self, X: DesignMatrix) -> CoefficientMask:
+        """The penalty applies to every coefficient except the intercept, if
+        the model has one."""
+        penalized_coefficients = np.ones(X.shape[1], dtype=np.bool_)
+        if has_intercept_column(X):
+            penalized_coefficients[0] = False
+        return penalized_coefficients
+
+    def _penalized_deviance(
+        self,
+        y: ResponseVector,
+        μ: MeanVector,
+        β: CoefficientVector,
+        penalized_coefficients: CoefficientMask,
+    ) -> Deviance:
+        penalty = self.alpha * float(np.sum(β[penalized_coefficients] ** 2))
+        return self.family.deviance(y, μ) + penalty
+
+    def _d_penalty(
+        self, β: CoefficientVector, penalized_coefficients: CoefficientMask
+    ) -> DevianceGradient:
+        # Like dβ, the gradient of half the penalty.
+        dβ_penalty: DevianceGradient = np.where(
+            penalized_coefficients, self.alpha * β, 0.0
+        )
         return dβ_penalty
 
-    def _dd_penalty(self, ddβ: InformationMatrix, X: DesignMatrix) -> InformationMatrix:
-        diag_idxs = list(range(1, X.shape[1]))
-        ddβ[diag_idxs, diag_idxs] += self.alpha
+    def _dd_penalty(
+        self, ddβ: InformationMatrix, penalized_coefficients: CoefficientMask
+    ) -> InformationMatrix:
+        # Like ddβ, the Hessian of half the penalty, added to the diagonal.
+        idxs = np.flatnonzero(penalized_coefficients)
+        ddβ[idxs, idxs] += self.alpha
         return ddβ
 
     def _make_rhs_matrix(self, X: DesignFrame) -> DesignMatrix:

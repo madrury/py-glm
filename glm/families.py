@@ -77,12 +77,6 @@ class ExponentialFamily(ABC):
     def sample(self, mu: MeanVector, dispersion: float) -> ResponseVector:
         pass
 
-    def penalized_deviance(
-        self, y: ResponseVector, mu: MeanVector, alpha: float, coef: CoefficientVector
-    ) -> Deviance:
-        # coef[0] always holds the intercept, which we do not penalize.
-        return self.deviance(y, mu) + alpha * float(np.sum(coef[1:] ** 2))
-
 
 class Gaussian(ExponentialFamily):
     """A Gaussian exponential family, used to fit a classical linear model.

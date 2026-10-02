@@ -60,3 +60,18 @@ def test_ridge_shrinks_toward_zero(X: np.ndarray) -> None:
         norms.append(np.sum(model.coef_[1:] ** 2))
     assert all(a > b for a, b in zip(norms, norms[1:]))
     assert norms[-1] < 1e-4 * norms[0]
+
+
+@pytest.mark.parametrize("alpha", ALPHAS)
+def test_ridge_without_intercept_penalizes_every_coefficient(
+    X: np.ndarray, alpha: float
+) -> None:
+    # Without an intercept, column 0 is an ordinary predictor, and must be
+    # penalized like the others.
+    X = X[:, 1:]
+    rng = np.random.default_rng(154)
+    y = X @ np.array([2.0, -1.0, 0.5]) + rng.normal(size=N)
+    model = GLM(Gaussian(), alpha=alpha).fit(X, y, tol=1e-12, validate_intercept=False)
+    expected = np.linalg.solve(X.T @ X + alpha * np.eye(X.shape[1]), X.T @ y)
+    assert model.coef_ is not None
+    np.testing.assert_allclose(model.coef_, expected, rtol=1e-8)
