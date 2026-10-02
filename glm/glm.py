@@ -233,6 +233,28 @@ class GLM:
         self: GLM object
             The fit model.
         """
+        design_matrix, response = self._prepare_data(X, y, formula, X_names, y_name)
+        return self._fit(
+            design_matrix,
+            response,
+            warm_start=warm_start,
+            offset=offset,
+            sample_weights=sample_weights,
+            max_iter=max_iter,
+            tol=tol,
+            validate_intercept=validate_intercept,
+        )
+
+    def _prepare_data(
+        self,
+        X: DesignMatrix | DesignFrame,
+        y: ResponseVector | None,
+        formula: Formula | None,
+        X_names: list[str] | None,
+        y_name: str | None,
+    ) -> tuple[DesignMatrix, ResponseVector]:
+        """Check the training data, and turn it into a design matrix and
+        response vector, learning the model's formula specs and names."""
         if formula:
             if not isinstance(X, pd.DataFrame):
                 raise TypeError(
@@ -282,16 +304,7 @@ class GLM:
             else:
                 self.y_name = default_y_name()
             design_matrix, response = X, y
-        return self._fit(
-            design_matrix,
-            response,
-            warm_start=warm_start,
-            offset=offset,
-            sample_weights=sample_weights,
-            max_iter=max_iter,
-            tol=tol,
-            validate_intercept=validate_intercept,
-        )
+        return design_matrix, response
 
     def _fit(
         self,
@@ -611,3 +624,9 @@ class GLM:
             self.y_spec.get_model_matrix(X, output="numpy", na_action="raise")
         ).squeeze(axis=1)
         return response
+
+    def _copy_formula(self, other: "GLM") -> None:
+        """Take another model's formula and specs, so that this model, fit to
+        that model's design matrix, can make predictions from data frames."""
+        self.formula = other.formula
+        self.X_spec, self.y_spec = other.X_spec, other.y_spec

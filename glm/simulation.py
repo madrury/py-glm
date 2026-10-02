@@ -306,8 +306,7 @@ class Simulation:
             sample_weights=sample_weights,
             validate_intercept=validate_intercept,
         )
-        model.formula = self.glm.formula
-        model.X_spec, model.y_spec = self.glm.X_spec, self.glm.y_spec
+        model._copy_formula(self.glm)
         return model
 
     def _design_matrix(self, X: DesignMatrix | DesignFrame) -> DesignMatrix:
