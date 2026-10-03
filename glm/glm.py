@@ -52,14 +52,21 @@ class GLM:
 
     GLMs are a generalization of the classical linear and logistic models to
     other conditional distributions of response y. A GLM is specified by a
-    *link function* G and a family of *conditional distributions* dist (forming
-    an exponential family), with the model specification given by
+    family of *conditional distributions* dist (forming an exponential family),
+    and a *link function* g, which relates the conditional mean of y to a
+    linear function of the predictors:
 
-        y | X ~ dist(θ = G(X @ β))
+        g(E[y | X]) = X @ β,  or equivalently  E[y | X] = g⁻¹(X @ β)
+
+    so that the model specification is
+
+        y | X ~ dist(μ = g⁻¹(X @ β))
 
     Here β are the parameters fit in the model, with X @ β a matrix
-    multiplication just like in linear regression. Above, θ is a
-    *parameter* of the one parameter family of distributions dist.
+    multiplication just like in linear regression, and μ is the mean of the
+    distribution dist. Some families also have a dispersion parameter, such as
+    the Gaussian's variance, which is shared by every observation and estimated
+    from the fit.
 
     In this implementation, a specific GLM is specified with a *family* object
     of ExponentialFamily type, which contains the information about the
