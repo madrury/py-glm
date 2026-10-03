@@ -49,6 +49,14 @@ type EffectiveDegreesOfFreedom = npt.NDArray[np.float64]
 """The effective degrees of freedom of each model along a regularization
 path, shape (n_alphas,)."""
 
+type PathAxis = Literal["log_alpha", "df"]
+"""The horizontal axis of a regularization path plot: the penalty strength,
+on a log scale, or the effective degrees of freedom."""
+
+type CoefficientScale = Literal["standardized", "original"]
+"""The scale on which to plot coefficients: standardized, as the penalty
+sees them, or the original scale of the predictors."""
+
 type TermColumns = dict[str, list[str]]
 """The names of the penalized coefficients belonging to each term of a model,
 e.g. {"C(g)": ["C(g)[a]", "C(g)[b]"]}, used to plot coefficients in groups."""

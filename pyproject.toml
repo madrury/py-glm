@@ -20,6 +20,11 @@ dependencies = [
     "scipy>=1.14.1",
 ]
 
+[project.optional-dependencies]
+# Plotting functions only need matplotlib for their axes; install it with
+# pip install "py-glm[plot]".
+plot = ["matplotlib>=3.8"]
+
 [project.urls]
 Repository = "https://github.com/madrury/py-glm"
 
