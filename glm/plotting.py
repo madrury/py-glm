@@ -113,13 +113,13 @@ def plot_coefficient_paths(
                 color=color,
                 label=name if j == 0 else None,
             )
-    ax.axhline(0.0, color="grey", linewidth=0.5)
+    ax.axhline(0.0, color="grey", linewidth=0.5, linestyle="--")
     if x == "log_alpha":
         ax.set_xscale("log")
-        ax.set_xlabel("alpha")
+        ax.set_xlabel(r"$\alpha$")
     else:
-        ax.set_xlabel("effective degrees of freedom")
-    ax.set_ylabel(f"{scale} coefficient")
+        ax.set_xlabel("Effective degrees of freedom")
+    ax.set_ylabel(f"{scale.capitalize()} coefficient")
     ax.legend()
     return ax
 
@@ -136,6 +136,7 @@ def _select_terms(path: RidgePath, terms: str) -> list[str]:
     requested = (
         parsed.rhs if isinstance(parsed, formulaic.StructuredFormula) else parsed
     )
+    # Every model in a RidgePath has the same specification.
     spec = path.models_[0].X_spec
     selected: set[str] = set()
     unknown: list[str] = []

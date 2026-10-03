@@ -37,10 +37,17 @@ GRID_MARGIN = 100.0
 class RidgePath:
     """Fit a GLM along a grid of ridge penalty strengths.
 
-    Models are fit from the largest alpha to the smallest, each starting from
-    the previous model's coefficients, which makes fitting the whole path cheap.
-    Every alpha must be strictly positive, so models specified with a formula
-    encode each level of all categorical variables.
+    Models are fit from the largest alpha to the smallest, each warm starting
+    from the previous model's coefficients, which makes fitting the whole path
+    cheap. Every alpha must be strictly positive, so models specified with a
+    formula encode each level of all categorical variables without linear
+    algebra errors arising from singular design matrices.
+
+    The default alpha grid is constructed to cover a range from (within a close
+    approximation) an intercept only model through an unpenalized model. This is
+    created as a log-scale spaced grid with upper and lower bounds computed
+    based on the eigenvalue spectrum of an information matrix. See
+    default_alphas for details on this computation.
 
     Parameters
     ----------

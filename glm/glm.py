@@ -52,13 +52,13 @@ class GLM:
 
     GLMs are a generalization of the classical linear and logistic models to
     other conditional distributions of response y. A GLM is specified by a
-    *link function* G and a family of *conditional distributions* dist, with
-    the model specification given by
+    *link function* G and a family of *conditional distributions* dist (forming
+    an exponential family), with the model specification given by
 
-        y | X ~ dist(theta = G(X * beta))
+        y | X ~ dist(θ = G(X @ β))
 
-    Here beta are the parameters fit in the model, with X * beta a matrix
-    multiplication just like in linear regression. Above, theta is a
+    Here β are the parameters fit in the model, with X @ β a matrix
+    multiplication just like in linear regression. Above, θ is a
     *parameter* of the one parameter family of distributions dist.
 
     In this implementation, a specific GLM is specified with a *family* object
@@ -100,8 +100,8 @@ class GLM:
 
     formula: str
         An (optional) formula specifying the model.  Used in the case that X is
-        passed as a DataFrame.  For documentation on model formulas, please see
-        the formulaic library documentation.
+        passed to fit as a DataFrame. For model formulas, please see the
+        formulaic library documentation.
 
     X_spec: formulaic.ModelSpec
         The learned mapping from a data frame to the design matrix, including
@@ -139,7 +139,8 @@ class GLM:
     -----
     Instead of supplying a `fit_intercept` argument, we have instead assumed the
     programmer has included a column of ones as column 0 of X, X[:, 0]. The fit
-    method will throw an exception if this is not the case.
+    method will throw an exception if this is not the case. When using a
+    formula, formulaic will add an intercept by default.
     """
 
     def __init__(
@@ -376,8 +377,8 @@ class GLM:
             μ = family.inv_link(η)
             dμ = family.d_inv_link(η, μ)
             var = family.variance(μ)
-            dβ = self._compute_dbeta(design, y, μ, dμ, var, sample_weights)
-            ddβ = self._compute_ddbeta(design, dμ, var, sample_weights)
+            dβ = self._dβ(design, y, μ, dμ, var, sample_weights)
+            ddβ = self._ddβ(design, dμ, var, sample_weights)
             if self._is_regularized():
                 dβ = dβ + self._d_penalty(β, penalized_coefficients)
                 ddβ = self._dd_penalty(ddβ, penalized_coefficients)
@@ -399,7 +400,7 @@ class GLM:
         self.deviance_ = family.deviance(y, μ)
         self.n = float(np.sum(sample_weights))
         self.p = X.shape[1]
-        self.information_matrix_ = self._compute_ddbeta(X, dμ, var, sample_weights)
+        self.information_matrix_ = self._ddβ(X, dμ, var, sample_weights)
         return self
 
     def predict(
@@ -512,6 +513,8 @@ class GLM:
             # Two tailed.
             p_value = null_dist.cdf(-z) + (1 - null_dist.cdf(z))
             p_values.append(p_value)
+        # TODO: In case we have coefficient names, this should maybe return a
+        # series with an index of names.
         return np.asarray(p_values, dtype=np.float64)
 
     def summary(self) -> None:
@@ -549,7 +552,7 @@ class GLM:
     def _is_regularized(self) -> bool:
         return self.alpha > 0.0
 
-    def _compute_dbeta(
+    def _dβ(
         self,
         X: DesignMatrix,
         y: ResponseVector,
@@ -561,7 +564,7 @@ class GLM:
         working_residuals = sample_weights * (y - μ) * (dμ / var)
         return -np.sum(X * working_residuals.reshape(-1, 1), axis=0)
 
-    def _compute_ddbeta(
+    def _ddβ(
         self,
         X: DesignMatrix,
         dμ: InverseLinkDerivative,

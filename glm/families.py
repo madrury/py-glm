@@ -6,7 +6,6 @@ from typing import ClassVar
 import numpy as np
 
 from glm.types import (
-    CoefficientVector,
     Deviance,
     InverseLinkDerivative,
     LinearPredictor,
@@ -18,19 +17,29 @@ from glm.types import (
 
 
 class ExponentialFamily(ABC):
-    """An ExponentialFamily must implement the methods below and define one
+    """An exponential family is a one or two parameter family of probability
+    distributions with a flexible parametric form that covers many common named
+    families of distributions. For example, the Gaussian, Bernoulli, and Gamma
+    families of distributions are exponential families.
+
+    A Generalized Linear Model assumes the conditional distribution y | X of the
+    response given the features is an exponential family, with the parameters of
+    said family modeled as a function of the features X.
+
+    An ExponentialFamily object must implement the methods below and define one
     attribute.
 
     Methods
     -------
     link:
-        The link function, mapping the mean to the linear predictor.
+        The link function, mapping the conditional mean μ = E[y | X] to the
+        linear predictor η = X @ β.
 
     inv_link:
         The inverse link function.
 
     d_inv_link:
-        The derivative of the inverse link function.
+        The derivative of the inverse link function: dμ/dη.
 
     variance:
         The variance function linking the mean to the variance of the
@@ -83,9 +92,9 @@ class Gaussian(ExponentialFamily):
 
     The GLM fit with this family has the following structure equation:
 
-        y | X ~ Gaussian(mu = X @ beta, sigma = dispersion)
+        y | X ~ Gaussian(μ = X @ β, σ² = dispersion)
 
-    Here, sigma is a nuisance parameter.
+    Here, the variance σ² is a nuisance parameter.
     """
 
     has_dispersion = True
@@ -120,7 +129,7 @@ class Bernoulli(ExponentialFamily):
 
     The GLM fit with this family has the following structure equation:
 
-        y | X ~ Bernoulli(p = X @ beta)
+        y | X ~ Bernoulli(p = 1 / (1 + exp(-X @ β)))
     """
 
     has_dispersion = False
@@ -156,7 +165,7 @@ class QuasiPoisson(ExponentialFamily):
 
     The GLM fit with this family has the following structure equation:
 
-        y | X ~ Poisson(mu = exp(X @ beta))
+        y | X ~ Poisson(μ = exp(X @ β))
 
     The parameter esimtates of this model are the same as a Poisson model, but
     a dispersion parameter is estimated, allowing for possibly larger standards
@@ -194,7 +203,7 @@ class Poisson(QuasiPoisson):
 
     The GLM fit with this family has the following structure equation:
 
-        y | X ~ Poisson(mu = exp(X @ beta))
+        y | X ~ Poisson(μ = exp(X @ β))
 
     The Poisson model does not estimate a dispersion parameter; if
     overdispersion is present, the standard errors estimated in this model may
@@ -209,12 +218,12 @@ class Gamma(ExponentialFamily):
 
     The GLM fit with this family has the following structure equation:
 
-        y | X ~ Gamma(shape = 1 / dispersion, scale = exp(X @ beta) * dispersion)
+        y | X ~ Gamma(shape = 1 / dispersion, scale = exp(X @ β) * dispersion)
 
-    so that E[y | X] = exp(X @ beta) and Var[y | X] = dispersion * E[y | X]**2.
+    so that E[y | X] = exp(X @ β) and Var[y | X] = dispersion * E[y | X]**2.
 
     Note: In this family we use the logarithmic link function, instead of the
-    reciprocal link function.  Although the reciprocal is the canonical link,
+    reciprocal link function. Although the reciprocal is the canonical link,
     the logarithmic link is more commonly used in Gamma regression.
     """
 
@@ -247,7 +256,7 @@ class Exponential(Gamma):
 
     The GLM fit with this family has the following structure equation:
 
-        y | X = Exponentiatl(scale = exp(X @ beta))
+        y | X ~ Exponential(scale = exp(X @ β))
 
     The only difference between this family and the Gamma family is that the
     dispersion is fixed at 1.0.

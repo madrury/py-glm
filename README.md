@@ -14,6 +14,13 @@ GitHub:
 pip install git+https://github.com/madrury/py-glm.git
 ```
 
+The plotting functions need `matplotlib`, which you can install along with
+`py-glm` as the `plot` extra:
+
+```
+pip install "py-glm[plot] @ git+https://github.com/madrury/py-glm.git"
+```
+
 ## Fitting Models
 
 The examples below use this simulated data:
@@ -201,7 +208,80 @@ ridge_model.fit(X, y)
 ```
 
 The penalty is `alpha` times the sum of the squared coefficients, excluding the
-intercept. P-values are not available for regularized models.
+intercept, if the model has one. P-values are not available for regularized
+models.
+
+**Standardization:** A ridge penalty depends on the units of the predictors:
+measuring a predictor in kilometres rather than metres makes its coefficient
+1000 times larger, and so penalizes it far more. So by default, penalized
+models standardize the design matrix's continuous columns to unit standard
+deviation before fitting, and report coefficients on the original scale. The
+`standardize` argument controls this:
+
+* `"continuous"` (the default) leaves indicator columns, those of zeros and
+  ones, unscaled: they are already on a natural scale, and scaling them would
+  shrink the coefficients of rare categories *less* than common ones.
+* `"all"` scales indicator columns too, as `glmnet` does.
+* `"none"` fits the columns as given.
+
+```python
+glmnet_style_model = GLM(family=Bernoulli(), alpha=1.0, standardize="all")
+```
+
+**Categorical variables:** Penalized formula models encode categorical
+variables with a column for every level, e.g. `C(g)[a]`, `C(g)[b]`, and
+`C(g)[c]`, rather than dropping a reference level, so that the penalty treats
+every level alike, and the fit doesn't depend on which level would have been
+the reference.
+
+**Note:** Before version 0.2.0, ridge fits in `py-glm` ignored `alpha`, and
+every penalized model was fit as though `alpha` were 1. Results from earlier
+versions should be recomputed.
+
+## Ridge Paths
+
+`RidgePath` fits a model at each of a grid of penalty strengths, from the
+largest to the smallest, starting each fit from the previous one's
+coefficients:
+
+```python
+from glm.ridge import RidgePath
+
+df["Group"] = rng.choice(["a", "b", "c"], N)
+path = RidgePath(family=Bernoulli())
+path.fit(df, formula="y ~ Moshi + SwimSwim + C(Group)")
+
+path.alphas_  # 100 penalty strengths, in decreasing order.
+path.models_  # A fit GLM for each.
+path.coefficient_table()  # One row per penalty strength, indexed by alpha.
+path.df_  # The effective degrees of freedom of each model.
+```
+
+Pass `alphas` to choose the penalty strengths yourself. By default, the grid
+spans the eigenvalues of the model's (standardized) information matrix: ridge
+shrinks a fit along each eigen-direction by the factor `d / (d + alpha)`, for
+that direction's eigenvalue `d`, so the whole path happens between them (see
+Hastie, Tibshirani, and Friedman, *The Elements of Statistical Learning*,
+section 3.4.1).
+
+`plot_coefficient_paths` plots the path of every coefficient, grouped by model
+term, so that every level of a categorical variable shares a color. Select
+terms with a formula, plot against the effective degrees of freedom rather
+than `alpha` with `x="df"`, and show coefficients on their original scale,
+rather than standardized, with `scale="original"`:
+
+```python
+import matplotlib.pyplot as plt
+from glm.plotting import plot_coefficient_paths
+
+fig, axes = plt.subplots(1, 2, figsize=(12, 4))
+plot_coefficient_paths(axes[0], path)
+plot_coefficient_paths(axes[1], path, "Moshi + C(Group)", x="df")
+```
+
+Like all of `py-glm`'s plotting functions, `plot_coefficient_paths` draws on
+the axes you pass it, and returns them, so you stay in control of the figure's
+layout.
 
 ## Type Annotations
 
