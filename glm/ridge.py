@@ -13,9 +13,14 @@ from glm.types import (
     AlphaGrid,
     CoefficientTable,
     CoefficientVector,
+    ColumnScales,
     DesignFrame,
     DesignMatrix,
+    EffectiveDegreesOfFreedom,
     Formula,
+    InformationEigenvalues,
+    LinearPredictor,
+    MeanVector,
     Offset,
     ResponseVector,
     SampleWeights,
@@ -66,6 +71,23 @@ class RidgePath:
         The names of the penalized coefficients belonging to each term of the
         model, for plotting coefficients in groups. For a model fit without a
         formula, each coefficient is its own term.
+
+    scales_: array, shape (n_features, )
+        The scale of each column of the design matrix, by which the penalized
+        fits standardized it (ones without standardizing). Multiplying the
+        coefficients by these gives the standardized coefficients, which the
+        penalty acts on.
+
+    df_: array, shape (n_alphas, )
+        The effective degrees of freedom of each model, sum(d / (d + alpha)),
+        where d are the eigenvalues of the model's information matrix for the
+        standardized penalized columns, with the intercept profiled out (see
+        default_alphas). They run from near zero, when alpha is large and all
+        coefficients are shrunk, up to the dimension of vector space spanned by
+        the penalized features; the intercept isn't counted. The dimension is
+        usually the number of penalized coefficients, less one for each
+        categorical variable encoded with a column for every level, as those
+        columns sum to the intercept and thus are linearly dependent.
     """
 
     def __init__(
@@ -92,6 +114,8 @@ class RidgePath:
         self.alphas_: AlphaGrid | None = None
         self.models_: list[GLM] | None = None
         self.term_columns_: TermColumns | None = None
+        self.scales_: ColumnScales | None = None
+        self.df_: EffectiveDegreesOfFreedom | None = None
 
     def __repr__(self) -> str:
         return (
@@ -155,6 +179,18 @@ class RidgePath:
         self.alphas_ = alphas
         self.models_ = models
         self.term_columns_ = _term_columns(template, design)
+        weights = np.ones(design.shape[0]) if sample_weights is None else sample_weights
+        standardizer = Standardizer(self.standardize).fit(design, weights)
+        self.scales_ = standardizer.scales_
+        self.df_ = _effective_degrees_of_freedom(
+            models,
+            alphas,
+            design,
+            standardizer.transform(design),
+            np.zeros(design.shape[0]) if offset is None else offset,
+            weights,
+            has_intercept_column(design),
+        )
         return self
 
     def coefficient_table(self) -> CoefficientTable:
@@ -203,44 +239,10 @@ def default_alphas(
         η = family.link(μ)
     if not np.all(np.isfinite(η)):
         raise ValueError(NON_FINITE_ESTIMATES_MESSAGE)
-    working_weights = weights * family.d_inv_link(η, μ) ** 2 / family.variance(μ)
-
     Z = Standardizer(standardize).fit(X, weights).transform(X)
-    has_intercept = has_intercept_column(X)
-    Z_penalized = Z[:, 1:] if has_intercept else Z
-    if Z_penalized.shape[1] == 0:
-        raise ValueError("The model has no penalized coefficients.")
-    if has_intercept:
-        # The penalty doesn't act on the intercept, so whatever the penalized
-        # coefficients are, the intercept is refit freely alongside them. The
-        # eigenvalues we want measure the information about the penalized
-        # coefficients that remains *after* the intercept has been fit.
-        # Their block of the information matrix, Z'WZ, overstates it: a column
-        # with a large mean partly mimics the intercept, and Z'WZ credits it
-        # with information that really pins down the response's overall level.
-        #
-        # Removing what the intercept can explain is "profiling it out". Write
-        # the full information matrix, intercept first, in blocks:
-        #
-        #   [ 1'W1  1'WZ ]
-        #   [ Z'W1  Z'WZ ]
-        #
-        # The information about Z's coefficients with the intercept profiled
-        # out is the Schur complement of the intercept's block:
-        #
-        #   Z'WZ - Z'W1 (1'W1)⁻¹ 1'WZ = (Z - 1m)' W (Z - 1m),
-        #
-        # where m = (1'W1)⁻¹ 1'WZ is the vector of the columns' means, weighted
-        # by the working weights W (expanding the right hand side gives the
-        # left). So centering each column at its weighted mean, and then
-        # forming Z'WZ, computes exactly the profiled information. The
-        # Standardizer's centering doesn't suffice: it uses the sample weights,
-        # not the working weights, and doesn't center indicator columns.
-        Z_penalized = Z_penalized - np.average(
-            Z_penalized, axis=0, weights=working_weights
-        )
-    information = Z_penalized.T @ (Z_penalized * working_weights[:, None])
-    eigenvalues = np.linalg.eigvalsh(information)
+    eigenvalues = _profiled_eigenvalues(
+        Z, _working_weights(family, η, μ, weights), has_intercept_column(X)
+    )
     nonzero = eigenvalues[eigenvalues > 1e-10 * eigenvalues.max()]
     if nonzero.size == 0:
         raise ValueError("The penalized columns of X carry no information.")
@@ -265,3 +267,89 @@ def _term_columns(template: GLM, X: DesignMatrix) -> TermColumns:
         if names:
             term_columns[str(term)] = names
     return term_columns
+
+
+def _working_weights(
+    family: ExponentialFamily,
+    η: LinearPredictor,
+    μ: MeanVector,
+    sample_weights: SampleWeights,
+) -> SampleWeights:
+    """The weights W in the information matrix X'WX, at the means μ."""
+    working_weights: SampleWeights = (
+        sample_weights * family.d_inv_link(η, μ) ** 2 / family.variance(μ)
+    )
+    return working_weights
+
+
+def _profiled_eigenvalues(
+    Z: DesignMatrix, working_weights: SampleWeights, has_intercept: bool
+) -> InformationEigenvalues:
+    """The eigenvalues of the information matrix of the penalized columns of
+    Z, with the intercept, if there is one, profiled out."""
+    Z_penalized = Z[:, 1:] if has_intercept else Z
+    if Z_penalized.shape[1] == 0:
+        raise ValueError("The model has no penalized coefficients.")
+    if has_intercept:
+        # The penalty doesn't act on the intercept, so whatever the penalized
+        # coefficients are, the intercept is refit freely alongside them. The
+        # eigenvalues we want measure the information about the penalized
+        # coefficients that remains *after* the intercept has been fit.
+        # Their block of the information matrix, Z'WZ, overstates it: a column
+        # with a large mean partly mimics the intercept, and Z'WZ credits it
+        # with information that really pins down the response's overall level.
+        #
+        # Removing what the intercept can explain is called "profiling it out".
+        #
+        # Write the full information matrix X'WX, intercept first, in blocks:
+        #
+        #   [ 1'W1  1'WZ ]
+        #   [ Z'W1  Z'WZ ]
+        #
+        # The information about Z's coefficients with the intercept profiled
+        # out is the Schur complement of the intercept's block:
+        #
+        #   Z'WZ - Z'W1 (1'W1)⁻¹ 1'WZ = (Z - 1m)' W (Z - 1m),
+        #
+        # where m = (1'W1)⁻¹ 1'WZ is the vector of the columns' means, weighted
+        # by the working weights W (expanding the right hand side gives the
+        # left). So centering each column at its weighted mean, and then
+        # forming Z'WZ, computes exactly the profiled information. The
+        # Standardizer's centering doesn't suffice: it uses the sample weights,
+        # not the working weights, and doesn't center indicator columns.
+        Z_penalized = Z_penalized - np.average(
+            Z_penalized, axis=0, weights=working_weights
+        )
+    information = Z_penalized.T @ (Z_penalized * working_weights[:, None])
+    # The matrix is positive semi-definite; clip rounding error below zero.
+    eigenvalues: InformationEigenvalues = np.clip(
+        np.linalg.eigvalsh(information), 0.0, None
+    )
+    return eigenvalues
+
+
+def _effective_degrees_of_freedom(
+    models: list[GLM],
+    alphas: AlphaGrid,
+    X: DesignMatrix,
+    Z: DesignMatrix,
+    offset: Offset,
+    sample_weights: SampleWeights,
+    has_intercept: bool,
+) -> EffectiveDegreesOfFreedom:
+    """sum(d / (d + alpha)) for each model, with d the eigenvalues of its
+    information matrix, at its own fitted means. The penalty acts on the
+    standardized coefficients, so the eigenvalues are for the standardized
+    columns Z of the design matrix X."""
+    df = np.empty(len(models))
+    for i, (model, alpha) in enumerate(zip(models, alphas)):
+        family = model.family
+        if model.coef_ is None:
+            raise ValueError("The path's models must be fit.")
+        η = X @ model.coef_ + offset
+        μ = family.inv_link(η)
+        d = _profiled_eigenvalues(
+            Z, _working_weights(family, η, μ, sample_weights), has_intercept
+        )
+        df[i] = np.sum(d / (d + alpha))
+    return df

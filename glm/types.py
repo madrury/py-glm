@@ -41,6 +41,14 @@ type AlphaGrid = npt.NDArray[np.float64]
 """Ridge penalty strengths along a regularization path, in decreasing order,
 shape (n_alphas,)."""
 
+type InformationEigenvalues = npt.NDArray[np.float64]
+"""The eigenvalues of an information matrix, which measure how much the data
+say about each of its eigen-directions."""
+
+type EffectiveDegreesOfFreedom = npt.NDArray[np.float64]
+"""The effective degrees of freedom of each model along a regularization
+path, shape (n_alphas,)."""
+
 type TermColumns = dict[str, list[str]]
 """The names of the penalized coefficients belonging to each term of a model,
 e.g. {"C(g)": ["C(g)[a]", "C(g)[b]"]}, used to plot coefficients in groups."""

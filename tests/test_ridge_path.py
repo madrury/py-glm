@@ -145,3 +145,41 @@ def test_array_path_term_columns(arrays: tuple[np.ndarray, np.ndarray]) -> None:
 def test_unfit_path_raises() -> None:
     with pytest.raises(ValueError, match="has not been fit"):
         RidgePath(Poisson()).coefficient_table()
+
+
+def test_effective_degrees_of_freedom_gaussian() -> None:
+    # For a Gaussian model the weights are constant, and the effective degrees
+    # of freedom are exactly the trace of the ridge hat matrix for the
+    # centered, standardized penalized columns (ESL, section 3.4.1).
+    rng = np.random.default_rng(154)
+    X = np.column_stack([np.ones(N), rng.normal(size=(N, 3)) * [1.0, 10.0, 0.1]])
+    y = X @ np.array([1.0, 0.5, -0.05, 2.0]) + rng.normal(size=N)
+    path = RidgePath(Gaussian(), n_alphas=10).fit(X, y)
+    assert path.alphas_ is not None and path.df_ is not None
+    Z = Standardizer("continuous").fit(X).transform(X)[:, 1:]
+    Z = Z - Z.mean(axis=0)
+    for alpha, df in zip(path.alphas_, path.df_):
+        hat = Z @ np.linalg.solve(Z.T @ Z + alpha * np.eye(3), Z.T)
+        assert df == pytest.approx(np.trace(hat))
+
+
+def test_effective_degrees_of_freedom_along_path(df: pd.DataFrame) -> None:
+    path = RidgePath(Poisson()).fit(df, formula="y ~ x1 + x2 + C(g)")
+    assert path.df_ is not None
+    # They grow as the penalty relaxes, from near zero up to the number of
+    # directions the penalized coefficients can vary in: x1, x2, and two
+    # contrasts between the three levels, as their columns sum to the
+    # intercept.
+    assert np.all(np.diff(path.df_) > 0)
+    assert path.df_[0] < 0.05
+    assert path.df_[-1] == pytest.approx(4.0, abs=0.05)
+
+
+def test_scales(arrays: tuple[np.ndarray, np.ndarray]) -> None:
+    X, y = arrays
+    path = RidgePath(Poisson(), n_alphas=5).fit(X, y)
+    np.testing.assert_array_equal(
+        path.scales_, Standardizer("continuous").fit(X).scales_
+    )
+    unstandardized = RidgePath(Poisson(), n_alphas=5, standardize="none").fit(X, y)
+    np.testing.assert_array_equal(unstandardized.scales_, 1.0)
