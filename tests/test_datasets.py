@@ -1,3 +1,5 @@
+import dataclasses
+
 import numpy as np
 import pytest
 
@@ -7,33 +9,36 @@ from glm.glm import GLM
 
 
 def test_shapes_and_intercept() -> None:
-    X, y, coef = make_regression(
+    data = make_regression(
         Gaussian(),
         n_samples=200,
         n_uncorrelated=3,
         n_correlated=2,
         rng=np.random.default_rng(154),
     )
+    X, y, coef = data.X, data.y, data.coef
     assert X.shape == (200, 6) and y.shape == (200,) and coef.shape == (6,)
     np.testing.assert_array_equal(X[:, 0], 1.0)
 
 
 def test_without_intercept() -> None:
-    X, _, coef = make_regression(
+    data = make_regression(
         Gaussian(), n_uncorrelated=3, intercept=False, rng=np.random.default_rng(154)
     )
+    X, coef = data.X, data.coef
     assert X.shape[1] == coef.shape[0] == 3
     assert not np.all(X[:, 0] == 1.0)
 
 
 def test_correlated_predictors_are_standardized_and_correlated() -> None:
-    X, _, _ = make_regression(
+    data = make_regression(
         Gaussian(),
         n_samples=5000,
         n_uncorrelated=0,
         n_correlated=4,
         rng=np.random.default_rng(154),
     )
+    X = data.X
     correlated = X[:, 1:]
     np.testing.assert_allclose(correlated.mean(axis=0), 0.0, atol=1e-12)
     np.testing.assert_allclose(correlated.std(axis=0), 1.0)
@@ -42,13 +47,14 @@ def test_correlated_predictors_are_standardized_and_correlated() -> None:
 
 
 def test_coefficients() -> None:
-    _, _, coef = make_regression(
+    data = make_regression(
         Gaussian(),
         n_uncorrelated=8,
         n_zero_coefficients=3,
         coef_range=(0.5, 2.0),
         rng=np.random.default_rng(154),
     )
+    coef = data.coef
     assert np.sum(coef == 0.0) == 3
     nonzero = coef[coef != 0.0]
     assert np.all((nonzero >= 0.5) & (nonzero <= 2.0))
@@ -57,8 +63,8 @@ def test_coefficients() -> None:
 def test_reproducible_with_rng() -> None:
     first = make_regression(Poisson(), rng=np.random.default_rng(154))
     second = make_regression(Poisson(), rng=np.random.default_rng(154))
-    for a, b in zip(first, second):
-        np.testing.assert_array_equal(a, b)
+    for field in ("X", "y", "coef"):
+        np.testing.assert_array_equal(getattr(first, field), getattr(second, field))
 
 
 def test_reproducible_with_global_seed() -> None:
@@ -66,29 +72,33 @@ def test_reproducible_with_global_seed() -> None:
     first = make_regression(Poisson())
     np.random.seed(154)
     second = make_regression(Poisson())
-    for a, b in zip(first, second):
-        np.testing.assert_array_equal(a, b)
+    for field in ("X", "y", "coef"):
+        np.testing.assert_array_equal(getattr(first, field), getattr(second, field))
 
 
 def test_responses_follow_the_family() -> None:
     rng = np.random.default_rng(154)
-    _, y_binary, _ = make_regression(Bernoulli(), rng=rng)
+    data = make_regression(Bernoulli(), rng=rng)
+    y_binary = data.y
     assert set(np.unique(y_binary)) <= {0, 1}
-    _, y_count, _ = make_regression(Poisson(), coef_range=(-0.3, 0.3), rng=rng)
+    data = make_regression(Poisson(), coef_range=(-0.3, 0.3), rng=rng)
+    y_count = data.y
     assert np.all(y_count >= 0) and np.all(y_count == np.round(y_count))
-    _, y_positive, _ = make_regression(Gamma(), coef_range=(-0.3, 0.3), rng=rng)
+    data = make_regression(Gamma(), coef_range=(-0.3, 0.3), rng=rng)
+    y_positive = data.y
     assert np.all(y_positive > 0)
 
 
 def test_gaussian_dispersion_is_the_residual_variance() -> None:
-    X, y, coef = make_regression(
+    data = make_regression(
         Gaussian(), n_samples=20000, dispersion=4.0, rng=np.random.default_rng(154)
     )
+    X, y, coef = data.X, data.y, data.coef
     assert np.var(y - X @ coef) == pytest.approx(4.0, rel=0.05)
 
 
 def test_fit_recovers_coefficients() -> None:
-    X, y, coef = make_regression(
+    data = make_regression(
         Poisson(),
         n_samples=20000,
         n_uncorrelated=3,
@@ -96,6 +106,7 @@ def test_fit_recovers_coefficients() -> None:
         coef_range=(-0.3, 0.3),
         rng=np.random.default_rng(154),
     )
+    X, y, coef = data.X, data.y, data.coef
     model = GLM(Poisson()).fit(X, y)
     z = (model.coef_ - coef) / model.coef_standard_error_
     # Seven coefficients, each with a 6e-5 chance of |z| >= 4 by chance alone,
@@ -117,3 +128,9 @@ def test_fit_recovers_coefficients() -> None:
 def test_invalid_arguments_raise(kwargs: dict, message: str) -> None:
     with pytest.raises(ValueError, match=message):
         make_regression(Gaussian(), **kwargs)
+
+
+def test_dataset_is_frozen() -> None:
+    data = make_regression(Gaussian(), rng=np.random.default_rng(154))
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        data.coef = np.zeros(6)  # type: ignore[misc]

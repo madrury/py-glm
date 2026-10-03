@@ -39,7 +39,8 @@ MAX_Z = sts.norm.isf(FALSE_FAILURE_RATE / (2 * MAX_COMPARISONS))
 
 @pytest.mark.parametrize("seed", SEEDS)
 def test_linear_regression(seed):
-    X, y, parameters = simulate(Gaussian(), seed, dispersion=0.01**2)
+    data = simulate(Gaussian(), seed, dispersion=0.01**2)
+    X, y, parameters = data.X, data.y, data.coef
     lr = GLM(family=Gaussian())
     lr.fit(X, y, tol=FIT_TOL)
     assert_near_truth(lr, parameters)
@@ -50,7 +51,8 @@ def test_linear_regression(seed):
 
 @pytest.mark.parametrize("seed", SEEDS)
 def test_logistic_regression(seed):
-    X, y, parameters = simulate(Bernoulli(), seed)
+    data = simulate(Bernoulli(), seed)
+    X, y, parameters = data.X, data.y, data.coef
     lr = GLM(family=Bernoulli())
     lr.fit(X, y, tol=FIT_TOL)
     assert_near_truth(lr, parameters)
@@ -61,7 +63,8 @@ def test_logistic_regression(seed):
 
 @pytest.mark.parametrize("seed", SEEDS)
 def test_poisson_regression(seed):
-    X, y, parameters = simulate(Poisson(), seed, coef_range=(-0.1, 0.1))
+    data = simulate(Poisson(), seed, coef_range=(-0.1, 0.1))
+    X, y, parameters = data.X, data.y, data.coef
     pr = GLM(family=Poisson())
     pr.fit(X, y, tol=FIT_TOL)
     assert_near_truth(pr, parameters)
@@ -73,7 +76,8 @@ def test_poisson_regression(seed):
 @pytest.mark.parametrize("seed", SEEDS)
 def test_gamma_regression(seed):
     # Exponentially distributed responses: gamma with a dispersion of one.
-    X, y, parameters = simulate(Gamma(), seed, coef_range=(-0.1, 0.1))
+    data = simulate(Gamma(), seed, coef_range=(-0.1, 0.1))
+    X, y, parameters = data.X, data.y, data.coef
     gr = GLM(family=Gamma())
     gr.fit(X, y, tol=FIT_TOL)
     assert_near_truth(gr, parameters)

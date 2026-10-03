@@ -1,6 +1,6 @@
 """Simulated datasets for examples and tests."""
 
-from typing import NamedTuple
+from dataclasses import dataclass
 
 import numpy as np
 
@@ -8,7 +8,11 @@ from glm.families import ExponentialFamily
 from glm.types import CoefficientVector, DesignMatrix, ResponseVector
 
 
-class SimulatedRegression(NamedTuple):
+# Frozen, so a dataset's fields can't be reassigned by accident (though the
+# arrays themselves stay writable); eq=False, as comparing the arrays with ==
+# would raise rather than return a bool.
+@dataclass(frozen=True, eq=False)
+class SimulatedRegression:
     """A simulated regression dataset, with the coefficients that generated
     it."""
 
@@ -73,8 +77,8 @@ def make_regression(
     -------
 
     dataset: SimulatedRegression
-        A named tuple of the design matrix X, the response y, and the
-        coefficients coef that generated it.
+        The design matrix X, the response y, and the coefficients coef that
+        generated it.
     """
     for name, value, minimum in [
         ("n_samples", n_samples, 1),
@@ -103,8 +107,9 @@ def make_regression(
         columns.append(np.ones((n_samples, 1)))
     columns.append(rng.normal(size=(n_samples, n_uncorrelated)))
     if n_correlated > 0:
-        # Mixing independent normals with a random matrix A gives predictors
-        # with covariance A'A, a random correlation structure.
+        # Mixing independent normals with a matrix A of standard normal
+        # entries gives predictors with covariance A'A, a random correlation
+        # structure.
         mixing = rng.normal(size=(n_correlated, n_correlated))
         correlated = rng.normal(size=(n_samples, n_correlated)) @ mixing
         columns.append((correlated - correlated.mean(axis=0)) / correlated.std(axis=0))
