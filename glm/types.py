@@ -4,6 +4,7 @@ Shapes are given in terms of n, the number of observations, and p, the number
 of coefficients in the model (including the intercept).
 """
 
+from collections.abc import Sequence
 from typing import Any, Literal
 
 import formulaic
@@ -115,6 +116,10 @@ type Deviance = float
 """A (possibly penalized) deviance."""
 
 # Simulation.
+type CategoricalLevels = int | Sequence[float]
+"""The levels of a simulated categorical variable: either their number, each
+equally likely, or each level's probability."""
+
 type SimulatedResponses = npt.NDArray[np.float64]
 """Responses simulated from a fit model, shape (n_sim, n). Each row is one
 simulated response vector, so iterating yields one replicate at a time."""
