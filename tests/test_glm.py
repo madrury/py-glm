@@ -1,15 +1,12 @@
+from typing import Any
+
 import numpy as np
 import pytest
 import scipy.stats as sts
 import statsmodels.api as sm
+from glm.datasets import SimulatedRegression, make_regression
+from glm.families import Bernoulli, ExponentialFamily, Gamma, Gaussian, Poisson
 from glm.glm import GLM
-from glm.families import Gaussian, Bernoulli, Poisson, Gamma
-from generate_data import (
-    make_linear_regression,
-    make_logistic_regression,
-    make_poisson_regression,
-    make_gamma_regression,
-)
 
 N_SAMPLES = 100000
 # Each family is tested on this many random regressions, one per seed.
@@ -42,17 +39,7 @@ MAX_Z = sts.norm.isf(FALSE_FAILURE_RATE / (2 * MAX_COMPARISONS))
 
 @pytest.mark.parametrize("seed", SEEDS)
 def test_linear_regression(seed):
-    np.random.seed(seed)
-    n_uncorr_features, n_corr_features, n_drop_features = (
-        generate_regression_hyperparamters()
-    )
-    X, y, parameters = make_linear_regression(
-        n_samples=N_SAMPLES,
-        n_uncorr_features=n_uncorr_features,
-        n_corr_features=n_corr_features,
-        n_drop_features=n_drop_features,
-        resid_sd=0.01,
-    )
+    X, y, parameters = simulate(Gaussian(), seed, dispersion=0.01**2)
     lr = GLM(family=Gaussian())
     lr.fit(X, y, tol=FIT_TOL)
     assert_near_truth(lr, parameters)
@@ -63,16 +50,7 @@ def test_linear_regression(seed):
 
 @pytest.mark.parametrize("seed", SEEDS)
 def test_logistic_regression(seed):
-    np.random.seed(seed)
-    n_uncorr_features, n_corr_features, n_drop_features = (
-        generate_regression_hyperparamters()
-    )
-    X, y, parameters = make_logistic_regression(
-        n_samples=N_SAMPLES,
-        n_uncorr_features=n_uncorr_features,
-        n_corr_features=n_corr_features,
-        n_drop_features=n_drop_features,
-    )
+    X, y, parameters = simulate(Bernoulli(), seed)
     lr = GLM(family=Bernoulli())
     lr.fit(X, y, tol=FIT_TOL)
     assert_near_truth(lr, parameters)
@@ -83,17 +61,7 @@ def test_logistic_regression(seed):
 
 @pytest.mark.parametrize("seed", SEEDS)
 def test_poisson_regression(seed):
-    np.random.seed(seed)
-    n_uncorr_features, n_corr_features, n_drop_features = (
-        generate_regression_hyperparamters()
-    )
-    X, y, parameters = make_poisson_regression(
-        n_samples=N_SAMPLES,
-        n_uncorr_features=n_uncorr_features,
-        n_corr_features=n_corr_features,
-        n_drop_features=n_drop_features,
-        coef_range=(-0.1, 0.1),
-    )
+    X, y, parameters = simulate(Poisson(), seed, coef_range=(-0.1, 0.1))
     pr = GLM(family=Poisson())
     pr.fit(X, y, tol=FIT_TOL)
     assert_near_truth(pr, parameters)
@@ -104,17 +72,8 @@ def test_poisson_regression(seed):
 
 @pytest.mark.parametrize("seed", SEEDS)
 def test_gamma_regression(seed):
-    np.random.seed(seed)
-    n_uncorr_features, n_corr_features, n_drop_features = (
-        generate_regression_hyperparamters()
-    )
-    X, y, parameters = make_gamma_regression(
-        n_samples=N_SAMPLES,
-        n_uncorr_features=n_uncorr_features,
-        n_corr_features=n_corr_features,
-        n_drop_features=n_drop_features,
-        coef_range=(-0.1, 0.1),
-    )
+    # Exponentially distributed responses: gamma with a dispersion of one.
+    X, y, parameters = simulate(Gamma(), seed, coef_range=(-0.1, 0.1))
     gr = GLM(family=Gamma())
     gr.fit(X, y, tol=FIT_TOL)
     assert_near_truth(gr, parameters)
@@ -135,8 +94,21 @@ def assert_matches_statsmodels(model, res):
     np.testing.assert_allclose(model.coef_standard_error_, res.bse, rtol=RTOL)
 
 
-def generate_regression_hyperparamters():
-    n_uncorr_features = np.random.choice(list(range(1, MAX_UNCORR_FEATURES + 1)))
-    n_corr_features = np.random.choice(list(range(1, MAX_CORR_FEATURES + 1)))
-    n_drop_features = np.random.choice(n_uncorr_features + n_corr_features)
-    return n_uncorr_features, n_corr_features, n_drop_features
+def simulate(
+    family: ExponentialFamily, seed: int, **kwargs: Any
+) -> SimulatedRegression:
+    """A random regression for the family: random numbers of correlated and
+    uncorrelated features, some with zero coefficients."""
+    rng = np.random.default_rng(seed)
+    n_uncorrelated = int(rng.integers(1, MAX_UNCORR_FEATURES + 1))
+    n_correlated = int(rng.integers(1, MAX_CORR_FEATURES + 1))
+    n_zero_coefficients = int(rng.integers(n_uncorrelated + n_correlated))
+    return make_regression(
+        family,
+        n_samples=N_SAMPLES,
+        n_uncorrelated=n_uncorrelated,
+        n_correlated=n_correlated,
+        n_zero_coefficients=n_zero_coefficients,
+        rng=rng,
+        **kwargs,
+    )
