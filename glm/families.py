@@ -49,7 +49,10 @@ class ExponentialFamily(ABC):
         The deviance of the family. Used as a measure of model fit.
 
     sample:
-        A sampler from the conditional distribution of the reponse.
+        A sampler from the conditional distribution of the response. Pass a
+        numpy Generator as rng to make draws reproducible; without one, draws
+        come from numpy's global random state, so np.random.seed controls
+        them.
 
     Attributes
     ----------
@@ -83,7 +86,12 @@ class ExponentialFamily(ABC):
         pass
 
     @abstractmethod
-    def sample(self, mu: MeanVector, dispersion: float) -> ResponseVector:
+    def sample(
+        self,
+        mu: MeanVector,
+        dispersion: float,
+        rng: np.random.Generator | None = None,
+    ) -> ResponseVector:
         pass
 
 
@@ -114,8 +122,13 @@ class Gaussian(ExponentialFamily):
     def deviance(self, y: ResponseVector, mu: MeanVector) -> Deviance:
         return float(np.sum((y - mu) ** 2))
 
-    def sample(self, mu: MeanVector, dispersion: float) -> ResponseVector:
-        return np.random.normal(mu, np.sqrt(dispersion))
+    def sample(
+        self,
+        mu: MeanVector,
+        dispersion: float,
+        rng: np.random.Generator | None = None,
+    ) -> ResponseVector:
+        return _generator(rng).normal(mu, np.sqrt(dispersion))
 
     def initial_working_response(self, y: ResponseVector) -> ResponseVector:
         return y
@@ -149,8 +162,13 @@ class Bernoulli(ExponentialFamily):
     def deviance(self, y: ResponseVector, mu: MeanVector) -> Deviance:
         return -2 * float(np.sum(y * np.log(mu) + (1 - y) * np.log(1 - mu)))
 
-    def sample(self, mu: MeanVector, dispersion: float) -> ResponseVector:
-        return np.random.binomial(1, mu)
+    def sample(
+        self,
+        mu: MeanVector,
+        dispersion: float,
+        rng: np.random.Generator | None = None,
+    ) -> ResponseVector:
+        return _generator(rng).binomial(1, mu)
 
     def initial_working_response(self, y: ResponseVector) -> ResponseVector:
         return (y - 0.5) / 0.25
@@ -194,8 +212,13 @@ class QuasiPoisson(ExponentialFamily):
         y_log_y[y != 0] = y_non_zero * np.log(y_non_zero)
         return 2 * float(np.sum(mu - y - y * np.log(mu) + y_log_y))
 
-    def sample(self, mu: MeanVector, dispersion: float) -> ResponseVector:
-        return np.random.poisson(mu)
+    def sample(
+        self,
+        mu: MeanVector,
+        dispersion: float,
+        rng: np.random.Generator | None = None,
+    ) -> ResponseVector:
+        return _generator(rng).poisson(mu)
 
 
 class Poisson(QuasiPoisson):
@@ -244,11 +267,16 @@ class Gamma(ExponentialFamily):
     def deviance(self, y: ResponseVector, mu: MeanVector) -> Deviance:
         return 2 * float(np.sum((y - mu) / mu - np.log(y / mu)))
 
-    def sample(self, mu: MeanVector, dispersion: float) -> ResponseVector:
+    def sample(
+        self,
+        mu: MeanVector,
+        dispersion: float,
+        rng: np.random.Generator | None = None,
+    ) -> ResponseVector:
         # The shape is dimensionless and sets the coefficient of variation,
         # CV**2 = 1 / shape = dispersion. The scale carries the units of y.
         shape, scale = 1 / dispersion, mu * dispersion
-        return np.random.gamma(shape=shape, scale=scale)
+        return _generator(rng).gamma(shape=shape, scale=scale)
 
 
 class Exponential(Gamma):
@@ -263,3 +291,12 @@ class Exponential(Gamma):
     """
 
     has_dispersion = False
+
+
+def _generator(rng: np.random.Generator | None) -> np.random.Generator:
+    """The generator to draw samples with. Without one, seed a new generator
+    from numpy's global random state, so that np.random.seed still makes the
+    draws reproducible."""
+    if rng is not None:
+        return rng
+    return np.random.default_rng(np.random.randint(np.iinfo(np.int64).max))

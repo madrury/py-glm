@@ -74,3 +74,26 @@ def test_sample_moments(
 )
 def test_link_inverts_inv_link(family: ExponentialFamily, mu: np.ndarray) -> None:
     np.testing.assert_allclose(family.inv_link(family.link(mu)), mu)
+
+
+FAMILIES = [Gaussian(), Bernoulli(), Poisson(), QuasiPoisson(), Gamma(), Exponential()]
+
+
+@pytest.mark.parametrize("family", FAMILIES, ids=repr)
+def test_sample_with_rng_is_reproducible(family: ExponentialFamily) -> None:
+    mu = np.linspace(0.1, 0.9, 100)
+    first = family.sample(mu, 0.5, rng=np.random.default_rng(154))
+    second = family.sample(mu, 0.5, rng=np.random.default_rng(154))
+    other = family.sample(mu, 0.5, rng=np.random.default_rng(155))
+    np.testing.assert_array_equal(first, second)
+    assert not np.array_equal(first, other)
+
+
+@pytest.mark.parametrize("family", FAMILIES, ids=repr)
+def test_sample_without_rng_follows_global_seed(family: ExponentialFamily) -> None:
+    mu = np.linspace(0.1, 0.9, 100)
+    np.random.seed(154)
+    first = family.sample(mu, 0.5)
+    np.random.seed(154)
+    second = family.sample(mu, 0.5)
+    np.testing.assert_array_equal(first, second)
