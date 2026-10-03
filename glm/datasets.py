@@ -79,6 +79,7 @@ def make_regression(
     n_samples: int = 1000,
     n_uncorrelated: int = 5,
     n_correlated: int = 0,
+    correlation: float | None = None,
     categorical: Sequence[CategoricalLevels] | None = None,
     n_zero_coefficients: int = 0,
     coef_range: tuple[float, float] = (-1.0, 1.0),
@@ -110,6 +111,12 @@ def make_regression(
 
     n_uncorrelated, n_correlated: non-negative integers
         The number of independent, and correlated, continuous predictors.
+
+    correlation: float, optional
+        The correlation between each pair of correlated predictors, between
+        -1 / (n_correlated - 1) and 1. By default, the correlated predictors
+        have a random correlation structure, which can range from almost
+        uncorrelated to almost collinear.
 
     categorical: sequence, optional
         For each categorical variable, either its number of levels, each
@@ -144,6 +151,7 @@ def make_regression(
         n_samples=n_samples,
         n_uncorrelated=n_uncorrelated,
         n_correlated=n_correlated,
+        correlation=correlation,
         categorical=list(categorical or []),
         n_zero_coefficients=n_zero_coefficients,
         coef_range=coef_range,
@@ -162,6 +170,7 @@ def make_frame(
     n_samples: int = 1000,
     n_uncorrelated: int = 5,
     n_correlated: int = 0,
+    correlation: float | None = None,
     categorical: Mapping[str, CategoricalLevels] | None = None,
     n_zero_coefficients: int = 0,
     coef_range: tuple[float, float] = (-1.0, 1.0),
@@ -212,6 +221,7 @@ def make_frame(
         n_samples=n_samples,
         n_uncorrelated=n_uncorrelated,
         n_correlated=n_correlated,
+        correlation=correlation,
         categorical=list(categorical.values()),
         n_zero_coefficients=n_zero_coefficients,
         coef_range=coef_range,
@@ -262,6 +272,7 @@ def _simulate(
     n_samples: int,
     n_uncorrelated: int,
     n_correlated: int,
+    correlation: float | None,
     categorical: list[CategoricalLevels],
     n_zero_coefficients: int,
     coef_range: tuple[float, float],
@@ -296,6 +307,14 @@ def _simulate(
         )
     if dispersion <= 0:
         raise ValueError(f"dispersion must be positive, got {dispersion}.")
+    if correlation is not None and n_correlated > 0:
+        # The equicorrelation matrix is positive definite only in this range.
+        lower = -1 / (n_correlated - 1) if n_correlated > 1 else -1.0
+        if not lower < correlation < 1:
+            raise ValueError(
+                f"With {n_correlated} correlated predictors, correlation must "
+                f"be between {lower:.3g} and 1, got {correlation}."
+            )
     if latent_noise_sd < 0:
         raise ValueError(
             f"latent_noise_sd must be non-negative, got {latent_noise_sd}."
@@ -311,10 +330,18 @@ def _simulate(
         columns.append(np.ones((n_samples, 1)))
     columns.append(rng.normal(size=(n_samples, n_uncorrelated)))
     if n_correlated > 0:
-        # Mixing independent normals with a matrix A of standard normal
-        # entries gives predictors with covariance A'A, a random correlation
-        # structure.
-        mixing = rng.normal(size=(n_correlated, n_correlated))
+        if correlation is None:
+            # Mixing independent normals with a matrix A of standard normal
+            # entries gives predictors with covariance A'A, a random
+            # correlation structure.
+            mixing = rng.normal(size=(n_correlated, n_correlated))
+        else:
+            # Mixing with the Cholesky factor L of the equicorrelation matrix
+            # C, with ones on the diagonal and the correlation elsewhere,
+            # gives predictors with covariance L'L = C.
+            C = np.full((n_correlated, n_correlated), correlation)
+            np.fill_diagonal(C, 1.0)
+            mixing = np.linalg.cholesky(C).T
         correlated = rng.normal(size=(n_samples, n_correlated)) @ mixing
         columns.append((correlated - correlated.mean(axis=0)) / correlated.std(axis=0))
     categories = []

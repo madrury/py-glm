@@ -265,3 +265,34 @@ def test_make_frame_invalid_categorical_raises(categorical: dict, message: str) 
 def test_make_frame_invalid_arguments_raise(kwargs: dict, message: str) -> None:
     with pytest.raises(ValueError, match=message):
         make_frame(Poisson(), **kwargs)
+
+
+@pytest.mark.parametrize("correlation", [0.8, 0.0, -0.3])
+def test_correlation(correlation: float) -> None:
+    data = make_regression(
+        Gaussian(),
+        n_samples=20000,
+        n_uncorrelated=0,
+        n_correlated=3,
+        correlation=correlation,
+        rng=np.random.default_rng(154),
+    )
+    off_diagonal = np.corrcoef(data.X[:, 1:].T)[~np.eye(3, dtype=bool)]
+    # A sample correlation's standard error is about (1 - ρ²) / sqrt(n) < 0.01.
+    np.testing.assert_allclose(off_diagonal, correlation, atol=0.03)
+
+
+@pytest.mark.parametrize("correlation", [1.0, -0.5, -1.0])
+def test_invalid_correlation_raises(correlation: float) -> None:
+    # With three correlated predictors, the correlation must exceed -1/2.
+    with pytest.raises(ValueError, match="correlation must be between"):
+        make_frame(Gaussian(), n_correlated=3, correlation=correlation)
+
+
+def test_correlation_none_keeps_random_structure() -> None:
+    # The default is unchanged, draw for draw.
+    a = make_regression(Gaussian(), n_correlated=3, rng=np.random.default_rng(154))
+    b = make_regression(
+        Gaussian(), n_correlated=3, correlation=None, rng=np.random.default_rng(154)
+    )
+    np.testing.assert_array_equal(a.X, b.X)
