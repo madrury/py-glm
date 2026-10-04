@@ -313,7 +313,7 @@ def _simulate(
         if not lower < correlation < 1:
             raise ValueError(
                 f"With {n_correlated} correlated predictors, correlation must "
-                f"be between {lower:.3g} and 1, got {correlation}."
+                f"be between {lower:.3g} and 1.0, got {correlation}."
             )
     if latent_noise_sd < 0:
         raise ValueError(
@@ -336,8 +336,8 @@ def _simulate(
             # correlation structure.
             mixing = rng.normal(size=(n_correlated, n_correlated))
         else:
-            # Mixing with the Cholesky factor L of the equicorrelation matrix
-            # C, with ones on the diagonal and the correlation elsewhere,
+            # Mixing with the Cholesky factor L of the equicorrelation matrix C,
+            # with ones on the diagonal and the desired correlation elsewhere,
             # gives predictors with covariance L'L = C.
             C = np.full((n_correlated, n_correlated), correlation)
             np.fill_diagonal(C, 1.0)
