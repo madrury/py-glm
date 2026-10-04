@@ -130,7 +130,7 @@ will need to threshold the probability returned by `predict` manually.
 ## Inference
 
 Once the model is fit, parameter estimates, parameter covariance estimates, and
-p-values from a standard z-test are available:
+p-values are available:
 
 ```python
 logistic_model.coef_
@@ -139,7 +139,20 @@ logistic_model.coef_standard_error_
 logistic_model.p_values_
 ```
 
-To get a quick summary, use the `summary` method:
+`summary_frame` collects them into a data frame, one row per coefficient, with
+the estimate, its standard error, the test statistic for the hypothesis that the
+coefficient is zero, its p-value, and a confidence interval:
+
+```python
+formula_model.summary_frame(level=0.95)
+```
+
+The test statistic is compared with Student's t distribution, with `n - p`
+degrees of freedom, for families that estimate a dispersion parameter (it's
+labelled `t`), and with the standard normal distribution for families that
+don't (labelled `z`), following the convention of R's `summary.glm`.
+
+To print a quick summary, use the `summary` method:
 
 ```python
 formula_model.summary()
@@ -147,12 +160,10 @@ formula_model.summary()
 
 ```
 Bernoulli GLM Model Summary.
-================================================
-Name          Parameter Estimate  Standard Error
-------------------------------------------------
-Intercept                   0.98            0.09
-Moshi                      -2.06            0.16
-SwimSwim                    0.99            0.14
+          estimate std error       z p-value lower 95% upper 95%
+Intercept    0.985     0.085  11.539  <0.001     0.817     1.152
+Moshi       -2.063     0.160 -12.888  <0.001    -2.377    -1.750
+SwimSwim     0.993     0.139   7.152  <0.001     0.721     1.265
 ```
 
 ## Simulation

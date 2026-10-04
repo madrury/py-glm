@@ -5,12 +5,15 @@ of coefficients in the model (including the intercept).
 """
 
 from collections.abc import Sequence
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import formulaic
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
+
+if TYPE_CHECKING:
+    from scipy.stats._distn_infrastructure import rv_continuous_frozen
 
 # Model inputs.
 type DesignMatrix = npt.NDArray[np.float64]
@@ -111,6 +114,15 @@ type StandardErrorVector = npt.NDArray[np.float64]
 
 type PValueVector = npt.NDArray[np.float64]
 """P-values for the hypotheses that each coefficient is zero, shape (p,)."""
+
+type ReferenceDistribution = "rv_continuous_frozen"
+"""The distribution of a coefficient's test statistic under the hypothesis
+that the coefficient is zero: a frozen scipy.stats distribution."""
+
+type CoefficientSummary = pd.DataFrame
+"""A table of a fit model's coefficients, one row per coefficient: their
+estimates, standard errors, test statistics, p-values, and confidence
+intervals."""
 
 type Deviance = float
 """A (possibly penalized) deviance."""

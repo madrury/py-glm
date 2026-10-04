@@ -1,19 +1,32 @@
 """Exponential families for GLMs"""
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from typing import ClassVar
 
 import numpy as np
+import scipy.stats as sts
 
 from glm.types import (
     Deviance,
     InverseLinkDerivative,
     LinearPredictor,
     MeanVector,
+    ReferenceDistribution,
     ResponseVector,
     SampleWeights,
     VarianceVector,
 )
+
+
+@dataclass(frozen=True)
+class TestDistribution:
+    """The reference distribution for a family's coefficient tests: the
+    statistic's name, "t" or "z", and its distribution under the hypothesis
+    that a coefficient is zero."""
+
+    statistic: str
+    distribution: ReferenceDistribution
 
 
 class ExponentialFamily(ABC):
@@ -48,6 +61,11 @@ class ExponentialFamily(ABC):
     deviance:
         The deviance of the family. Used as a measure of model fit.
 
+    coefficient_test:
+        The reference distribution for testing that a coefficient is zero:
+        Student's t if the dispersion is estimated, the standard normal if
+        not.
+
     sample:
         A sampler from the conditional distribution of the response. Pass a
         numpy Generator as rng to make draws reproducible; without one, draws
@@ -64,6 +82,23 @@ class ExponentialFamily(ABC):
 
     def __repr__(self) -> str:
         return f"{type(self).__name__}()"
+
+    def coefficient_test(self, residual_df: float) -> TestDistribution:
+        """The reference distribution of a coefficient's test statistic,
+        estimate / standard error, under the hypothesis that the true
+        coefficient is zero.
+
+        A family with an estimated dispersion uses Student's t distribution
+        with the residual degrees of freedom, n - p, accounting for the
+        uncertainty in the dispersion estimate. For the Gaussian family this is
+        exact; for others it's the standard approximation. A family with a fixed
+        dispersion uses the standard normal: its statistics are asymptotically
+        normal, and nothing extra was estimated. This is the convention of R's
+        summary.glm.
+        """
+        if self.has_dispersion:
+            return TestDistribution("t", sts.t(df=residual_df))
+        return TestDistribution("z", sts.norm())
 
     @abstractmethod
     def link(self, mu: MeanVector) -> LinearPredictor:

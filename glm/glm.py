@@ -1,14 +1,15 @@
+from collections.abc import Callable
 from typing import Self
 
 import formulaic
 import numpy as np
 import pandas as pd
-import scipy.stats as sts
 
-from glm.families import ExponentialFamily
+from glm.families import ExponentialFamily, TestDistribution
 from glm.standardize import Standardizer, check_standardization
 from glm.types import (
     CoefficientMask,
+    CoefficientSummary,
     CoefficientVector,
     CovarianceMatrix,
     Deviance,
@@ -503,46 +504,76 @@ class GLM:
 
     @property
     def p_values_(self) -> PValueVector:
-        """Return an array of p-values for the fit coefficients. These p-values
-        test the hypothesis that the given parameter is zero.
-
-        Note: We use the asymptotic normal approximation to the parameter
-        estimates to compute the p-values for all models.
+        """Return an array of p-values for the fit coefficients, testing the
+        hypothesis that each true coefficient is zero. The test statistic,
+        estimate / standard error, is compared with the family's reference
+        distribution: Student's t if it estimates a dispersion, the standard
+        normal if not (see ExponentialFamily.coefficient_test). summary_frame
+        gives the p-values along with the coefficients' names.
         """
         if self.alpha != 0:
             raise ValueError("p-values are not available for regularized models.")
         if self.coef_ is None:
             raise ValueError("p-values can only be computed for a fit model.")
-        p_values = []
-        null_dist = sts.norm(loc=0.0, scale=1.0)
-        for β, std_err in zip(self.coef_, self.coef_standard_error_):
-            z = abs(β) / std_err
-            # Two tailed.
-            p_value = null_dist.cdf(-z) + (1 - null_dist.cdf(z))
-            p_values.append(p_value)
-        # TODO: In case we have coefficient names, this should maybe return a
-        # series with an index of names.
-        return np.asarray(p_values, dtype=np.float64)
+        statistics = self.coef_ / self.coef_standard_error_
+        if self.n is None or self.p is None:
+            raise ValueError("p-values can only be computed for a fit model.")
+        # Two tailed: the chance of a statistic at least this far from zero.
+        d: TestDistribution = self.family.coefficient_test(residual_df=self.n - self.p)
+        return 2 * d.distribution.sf(np.abs(statistics))
+
+    def summary_frame(self, level: float = 0.95) -> CoefficientSummary:
+        """A table of the fit coefficients, one row per coefficient.
+
+        The columns are the estimate, its standard error, the test statistic
+        for the hypothesis that the coefficient is zero (labelled "t" or "z",
+        as the family's reference distribution is Student's t or the standard
+        normal; see ExponentialFamily.coefficient_test), its two tailed
+        p-value, and the bounds of a confidence interval. For regularized
+        models, only the estimates and standard errors are given, as the
+        tests and intervals aren't valid.
+
+        Parameters
+        ----------
+        level: float, between 0 and 1
+            The confidence level of the intervals.
+        """
+        if self.coef_ is None:
+            raise ValueError("A summary is only available for a fit model.")
+        if self.n is None or self.p is None:
+            raise ValueError("p-values can only be computed for a fit model.")
+        if not 0 < level < 1:
+            raise ValueError(f"level must be between 0 and 1, got {level}.")
+        standard_errors = self.coef_standard_error_
+        frame = pd.DataFrame(
+            {"estimate": self.coef_, "std error": standard_errors},
+            index=self.X_names,
+        )
+        if self._is_regularized():
+            return frame
+        test: TestDistribution = self.family.coefficient_test(
+            residual_df=self.n - self.p
+        )
+        frame[test.statistic] = self.coef_ / standard_errors
+        frame["p-value"] = self.p_values_
+        quantile = float(test.distribution.ppf((1 + level) / 2))
+        percent = f"{100 * level:g}%"
+        frame[f"lower {percent}"] = self.coef_ - quantile * standard_errors
+        frame[f"upper {percent}"] = self.coef_ + quantile * standard_errors
+        return frame
 
     def summary(self) -> None:
-        """Print a summary of the model."""
-        if self.coef_ is None or self.X_names is None:
-            raise ValueError("A summary is only available for a fit model.")
-        variable_names = self.X_names
-        parameter_estimates = self.coef_
-        standard_errors = self.coef_standard_error_
-        longest_var_name_length = max(len(name) + 2 for name in variable_names)
-        format_string = "{:<" + str(longest_var_name_length) + "} {:>20} {:>15}"
-        header_string = format_string.format(
-            "Name", "Parameter Estimate", "Standard Error"
-        )
+        """Print a summary of the model's coefficients; see summary_frame."""
+        frame = self.summary_frame()
+        # Annotated, as an inferred type would include the lambda's parameter
+        # name, which a formatter with a differently named parameter breaks.
+        formatters: dict[str, Callable[[float], str]] = {
+            column: (lambda v: f"{v:.3f}") for column in frame.columns
+        }
+        if "p-value" in frame.columns:
+            formatters["p-value"] = lambda p: "<0.001" if p < 0.001 else f"{p:.3f}"
         print(f"{self.family.__class__.__name__} GLM Model Summary.")
-        print("=" * len(header_string))
-        print(header_string)
-        print("-" * len(header_string))
-        format_string = "{:<" + str(longest_var_name_length) + "} {:>20.2f} {:>15.2f}"
-        for name, est, se in zip(variable_names, parameter_estimates, standard_errors):
-            print(format_string.format(name, est, se))
+        print(frame.to_string(formatters=formatters))
 
     def __repr__(self) -> str:
         return (

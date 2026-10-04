@@ -33,6 +33,11 @@
 - **Absolute imports only.** Import within the package as `from glm.utils import
   ...`, never with relative imports (`from .utils import ...`).
 
+## Output
+
+- **No significance stars.** Never mark p-values with stars or other
+  significance symbols, in any table, summary, or plot.
+
 ## Plotting
 
 - **Axes in, axes out.** Plotting functions take a matplotlib `Axes` as their
