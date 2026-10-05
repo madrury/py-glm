@@ -27,8 +27,8 @@ from glm.types import (
 
 
 # Frozen, so a dataset's fields can't be reassigned by accident (though the
-# arrays themselves stay writable); eq=False, as comparing the arrays with ==
-# would raise rather than return a bool.
+# arrays themselves stay writable); eq=False, as comparing the numpy arrays with
+# == would raise rather than return a bool.
 @dataclass(frozen=True, eq=False)
 class SimulatedRegression:
     """A simulated regression dataset, with the coefficients that generated
