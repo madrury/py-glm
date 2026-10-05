@@ -1,7 +1,9 @@
+import warnings
 from collections.abc import Callable
-from typing import Self
+from typing import Any, Self
 
 import formulaic
+from formulaic.errors import DataMismatchWarning
 import numpy as np
 import pandas as pd
 
@@ -421,8 +423,24 @@ class GLM:
 
             preds = family.inv_link(X @ self.coef_)
 
-        Note: In the case of binary models, predict *does not* make class
-        assignmnets, it returns a probability of class membership.
+        In the case of binary models, predict *does not* make class assignments,
+        it returns a probability of class membership.
+
+        For a model fit with a formula, new data may contain a level of a
+        categorical variable that the training data did not. The different
+        encoding for penalized and unpenalized models has an effect here:
+
+        - An unpenalized model encodes each level relative to a reference level,
+        whose indicators are all zero. So an unseen level would be
+        indistinguishable from the reference level.
+        - A penalized model encodes every level with its own indicator, and
+        shrinks each level's coefficient toward zero. So a level with no
+        training data gets no effect at all: its indicators are all zero, and
+        its prediction is the baseline.
+
+        In the unpenalized case, we raise an error instead of silently falling
+        back to the reference level prediction. In the penalized case, we do not
+        raise, since the predictions fall back to the baseline case.
 
         Parameters
         ----------
@@ -651,11 +669,34 @@ class GLM:
     def _make_rhs_matrix(self, X: DesignFrame) -> DesignMatrix:
         if self.X_spec is None:
             raise ValueError("Model was not fit with a formula.")
-        # Raise on missing values rather than dropping rows, which would
-        # silently misalign the design matrix with the rows of X.
-        design_matrix: DesignMatrix = np.asarray(
-            self.X_spec.get_model_matrix(X, output="numpy", na_action="raise")
-        )
+        # formulaic encodes a level it didn't see in training as all zero
+        # indicators. With reference coding (formulaic's ensure_full_rank),
+        # that's the reference level's encoding, so an unseen level would be
+        # silently predicted as the reference level. Check before encoding,
+        # so the error isn't preceded by formulaic's own warning.
+        if self.X_spec.ensure_full_rank:
+            unseen = unseen_categories(self.X_spec, X)
+            if unseen:
+                described = "; ".join(
+                    f"{factor}: {levels}" for factor, levels in unseen.items()
+                )
+                raise ValueError(
+                    f"X contains categorical levels the model wasn't fit with "
+                    f"({described}). An unpenalized model encodes each level "
+                    f"relative to a reference level, so it can't predict for "
+                    f"levels it hasn't seen: refit with them, or merge them into "
+                    f"levels the model has seen."
+                )
+        with warnings.catch_warnings():
+            # With every level encoded, as for penalized models, all zero
+            # indicators for an unseen level are intended (see predict), so
+            # formulaic's warning that they will skew the results is not needed.
+            warnings.simplefilter("ignore", DataMismatchWarning)
+            # Raise on missing values rather than dropping rows, which would
+            # silently misalign the design matrix with the rows of X.
+            design_matrix: DesignMatrix = np.asarray(
+                self.X_spec.get_model_matrix(X, output="numpy", na_action="raise")
+            )
         return design_matrix
 
     def _make_lhs_vector(self, X: DesignFrame) -> ResponseVector:
@@ -671,3 +712,26 @@ class GLM:
         that model's design matrix, can make predictions from data frames."""
         self.formula = other.formula
         self.X_spec, self.y_spec = other.X_spec, other.y_spec
+
+
+def unseen_categories(spec: DesignSpec, X: DesignFrame) -> dict[str, list[Any]]:
+    """The levels of each categorical variable in X that the model's learned
+    spec has not yet seen, keyed by the variable's expression in the formula."""
+    unseen = {}
+    for factor, (kind, state) in spec.encoder_state.items():
+        if kind.value != "categorical":
+            continue
+        # Let formulaic evaluate the factor's expression on X, so that a
+        # categorical variable is handled however it appears in the formula.
+        observed_spec = formulaic.model_matrix(f"0 + {factor}", X).model_spec
+        if observed_spec is None:
+            raise ValueError(f"Could not evaluate the factor {factor} on X.")
+        _, observed_state = observed_spec.encoder_state[factor]
+        new_levels = [
+            level
+            for level in observed_state["categories"]
+            if level not in state["categories"]
+        ]
+        if new_levels:
+            unseen[str(factor)] = new_levels
+    return unseen

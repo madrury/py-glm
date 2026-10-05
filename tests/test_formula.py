@@ -79,3 +79,45 @@ def test_formula_model_predict_requires_data_frame(df: pd.DataFrame) -> None:
     model = GLM(Poisson()).fit(df, formula="y ~ x")
     with pytest.raises(TypeError, match="must be a DataFrame"):
         model.predict(np.ones((2, 2)))
+
+
+@pytest.mark.parametrize(
+    "formula, new_g",
+    [
+        ("y ~ x + C(g)", "d"),
+        ("y ~ x + g", "d"),  # A string column is categorical without C().
+        ("y ~ x + x:C(g)", "d"),  # A categorical only in an interaction.
+    ],
+)
+def test_unpenalized_predict_rejects_unseen_levels(
+    df: pd.DataFrame, formula: str, new_g: str
+) -> None:
+    # Reference coding would encode the unseen level exactly as the reference
+    # level, silently predicting it as level "a".
+    model = GLM(Poisson()).fit(df, formula=formula)
+    new = pd.DataFrame({"x": [0.0, 1.0], "g": ["b", new_g]})
+    with pytest.raises(ValueError, match=r"levels the model wasn't fit with .*\['d'\]"):
+        model.predict(new)
+
+
+def test_unpenalized_predict_rejects_unseen_integer_levels(df: pd.DataFrame) -> None:
+    codes = df.assign(k=df["g"].map({"a": 1, "b": 2, "c": 3}))
+    model = GLM(Poisson()).fit(codes, formula="y ~ x + C(k)")
+    with pytest.raises(ValueError, match=r"\[4\]"):
+        model.predict(pd.DataFrame({"x": [0.0], "k": [4]}))
+
+
+def test_unpenalized_predict_accepts_a_subset_of_levels(df: pd.DataFrame) -> None:
+    model = GLM(Poisson()).fit(df, formula="y ~ x + g")
+    assert model.predict(pd.DataFrame({"x": [0.0, 1.0], "g": ["c", "c"]})).shape == (2,)
+
+
+def test_penalized_predict_gives_unseen_levels_no_effect(df: pd.DataFrame) -> None:
+    # Every level has its own indicator, shrunk toward zero, so a level with
+    # no training data gets no effect: the baseline prediction.
+    model = GLM(Poisson(), alpha=1.0).fit(df, formula="y ~ x + C(g)")
+    assert model.coef_ is not None
+    coef = pd.Series(model.coef_, index=model.X_names)
+    new = pd.DataFrame({"x": [0.5], "g": ["d"]})
+    expected = np.exp(coef["Intercept"] + coef["x"] * 0.5)
+    np.testing.assert_allclose(model.predict(new), expected)
