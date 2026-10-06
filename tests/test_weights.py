@@ -151,3 +151,48 @@ def test_invalid_weights_raise(kind: str) -> None:
         GLM(Poisson()).fit(X, y, **{kind: negative})
     with pytest.raises(ValueError, match=f"{kind} and y are not the same length"):
         GLM(Poisson()).fit(X, y, **{kind: np.ones(N - 1)})
+
+
+def test_school_averages_need_precision_weights() -> None:
+    # Students' scores vary independently around their school's mean, and we
+    # only see each school's average score. The average of m scores has
+    # variance σ² / m: one observation, more precise for a bigger school.
+    # Precision weights reproduce the fit to the students' own scores;
+    # frequency weights treat each school as m students who all scored its
+    # average, and so understate the standard errors.
+    rng = np.random.default_rng(154)
+    n_schools = 50
+    x = rng.normal(size=n_schools)
+    sizes = rng.integers(50, 150, size=n_schools)
+    school = np.repeat(np.arange(n_schools), sizes)
+    scores = 60 + 5 * x[school] + rng.normal(scale=10.0, size=sizes.sum())
+    averages = np.bincount(school, weights=scores) / sizes
+
+    X = np.column_stack([np.ones(n_schools), x])
+    students = GLM(Gaussian()).fit(X[school], scores, tol=FIT_TOL)
+    weights = sizes.astype(np.float64)
+    precision = GLM(Gaussian()).fit(X, averages, precision_weights=weights)
+    frequency = GLM(Gaussian()).fit(X, averages, frequency_weights=weights)
+
+    # The school averages are sufficient for the coefficients.
+    np.testing.assert_allclose(precision.coef_, students.coef_)
+    np.testing.assert_allclose(frequency.coef_, students.coef_)
+    # The students' deviance splits into the variation within schools, which
+    # doesn't depend on the coefficients, and the weighted school deviance.
+    within_schools = np.sum((scores - averages[school]) ** 2)
+    assert students.deviance_ == pytest.approx(precision.deviance_ + within_schools)
+    # Only frequency weights count students as observations.
+    assert precision.n == n_schools
+    assert frequency.n == sizes.sum()
+    # So the precision fit's standard errors are about the students' fit's.
+    # It estimates σ² from only 48 residual degrees of freedom, so its
+    # standard errors vary by about 10% from sample to sample: allow 30%. The
+    # frequency fit's are smaller by the root of the ratio of residual degrees
+    # of freedom: about ten times too small.
+    np.testing.assert_allclose(
+        precision.coef_standard_error_, students.coef_standard_error_, rtol=0.3
+    )
+    np.testing.assert_allclose(
+        frequency.coef_standard_error_,
+        precision.coef_standard_error_ * np.sqrt((n_schools - 2) / (sizes.sum() - 2)),
+    )
