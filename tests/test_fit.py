@@ -42,18 +42,21 @@ def test_poisson_fit_with_large_offset(X: np.ndarray) -> None:
     np.testing.assert_allclose(model.coef_, [-3, 0.1], atol=0.05)
 
 
-def test_zero_weight_rows_do_not_affect_fit(X: np.ndarray) -> None:
+@pytest.mark.parametrize("kind", ["frequency_weights", "precision_weights"])
+def test_zero_weight_rows_do_not_affect_fit(X: np.ndarray, kind: str) -> None:
     rng = np.random.default_rng(154)
     y = rng.poisson(np.exp(0.5 + 0.3 * X[:, 1])).astype(np.float64)
     # Extreme responses on rows with zero weight must have no effect.
     y_contaminated, weights = y.copy(), np.ones(N)
     y_contaminated[::4], weights[::4] = 1000.0, 0.0
-    model = GLM(Poisson()).fit(X, y_contaminated, sample_weights=weights)
+    model = GLM(Poisson()).fit(X, y_contaminated, **{kind: weights})
     assert model.coef_ is not None
     kept = weights > 0
     subset = GLM(Poisson()).fit(X[kept], y[kept])
     assert subset.coef_ is not None
     np.testing.assert_allclose(model.coef_, subset.coef_)
+    # Rows with zero weight aren't observations.
+    assert model.n == kept.sum()
 
 
 def test_non_finite_estimates_raise(X: np.ndarray) -> None:

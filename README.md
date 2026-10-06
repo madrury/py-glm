@@ -74,7 +74,7 @@ ones), and `fit` raises an error if it isn't. To fit a model without an intercep
 pass `validate_intercept=False`. Model formulas, below, include an intercept
 automatically.
 
-Offsets and sample weights are supported when fitting:
+Offsets and weights are supported when fitting:
 
 ```python
 exposure = rng.uniform(1, 10, N)
@@ -82,13 +82,37 @@ exposure = rng.uniform(1, 10, N)
 y_count = rng.poisson(exposure * np.exp(0.5 + 0.3 * df["Moshi"]))
 poisson_model.fit(X, y_count, offset=np.log(exposure))
 
-sample_weights = rng.uniform(0, 2, N)
-weighted_model = GLM(family=Bernoulli()).fit(X, y, sample_weights=sample_weights)
+counts = rng.integers(1, 5, N).astype(np.float64)
+weighted_model = GLM(family=Bernoulli()).fit(X, y, frequency_weights=counts)
 ```
+
+**Weights:** There are two kinds of weights, and they mean different things.
+
+* `frequency_weights` say how many identical observations each row stands
+  for, as when repeated records are stored once with a count. Fitting with them
+  is equivalent to fitting to the expanded data.
+* `precision_weights` say how much more precise each row's response is than a
+  single observation's: its variance is divided by the weight. They're the
+  natural weights for a response that's an average, or a proportion. For
+  example, a binomial response given as proportions of successes, weighted by
+  their numbers of trials:
+
+```python
+trials = rng.integers(5, 20, N).astype(np.float64)
+successes = rng.binomial(trials.astype(int), 1 / (1 + np.exp(-(X @ [0.5, -1.0, 0.5]))))
+proportions_model = GLM(family=Bernoulli()).fit(
+    X, successes / trials, precision_weights=trials
+)
+```
+
+Both give the same coefficients, but only frequency weights add observations,
+so for families that estimate a dispersion, they give different dispersions and
+standard errors. (R's `glm` calls precision weights *prior weights*.) The two
+kinds can be combined.
 
 **Missing values:** `fit` and `predict` raise an error if the data contain
 missing values, rather than silently dropping rows, which would misalign the
-data with any offsets, sample weights, or predictions. Dealing with missing
+data with any offsets, weights, or predictions. Dealing with missing
 values is thus the user's responsibility: drop or impute missing values before
 fitting models.
 

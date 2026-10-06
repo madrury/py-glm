@@ -10,7 +10,8 @@ from glm.types import (
     DesignMatrix,
     Offset,
     ResponseVector,
-    SampleWeights,
+    FrequencyWeights,
+    PrecisionWeights,
     SimulatedResponses,
 )
 from glm.utils import default_X_names
@@ -170,7 +171,8 @@ class Simulation:
         y: ResponseVector | None = None,
         n_sim: int = 100,
         offset: Offset | None = None,
-        sample_weights: SampleWeights | None = None,
+        frequency_weights: FrequencyWeights | None = None,
+        precision_weights: PrecisionWeights | None = None,
         validate_intercept: bool = True,
     ) -> list[GLM]:
         """Fit models to non-parametric bootstrap samples.
@@ -197,9 +199,10 @@ class Simulation:
             Offsets to use in predictions feeding into the conditional
             distributions.
 
-        sample_weights: array, shape (n_samples, )
-            Sample weights used when fitting each model. Each resampled row
-            keeps its weight.
+        frequency_weights, precision_weights: arrays, shape (n_samples, )
+            Weights used when fitting each model, as for GLM.fit. Each
+            resampled row keeps its weights. A frequency-weighted row is
+            resampled whole, all its identical observations together.
 
         validate_intercept: bool
             Check that column 0 of each replicate's design matrix is an
@@ -248,8 +251,11 @@ class Simulation:
                     design[idxs],
                     response[idxs],
                     offset=None if offset is None else offset[idxs],
-                    sample_weights=(
-                        None if sample_weights is None else sample_weights[idxs]
+                    frequency_weights=(
+                        None if frequency_weights is None else frequency_weights[idxs]
+                    ),
+                    precision_weights=(
+                        None if precision_weights is None else precision_weights[idxs]
                     ),
                     validate_intercept=validate_intercept,
                 )
@@ -287,7 +293,8 @@ class Simulation:
         response: ResponseVector,
         *,
         offset: Offset | None,
-        sample_weights: SampleWeights | None = None,
+        frequency_weights: FrequencyWeights | None = None,
+        precision_weights: PrecisionWeights | None = None,
         validate_intercept: bool,
     ) -> GLM:
         """Fit a copy of the model to one bootstrap replicate.
@@ -303,7 +310,8 @@ class Simulation:
             X_names=self.glm.X_names,
             y_name=self.glm.y_name,
             offset=offset,
-            sample_weights=sample_weights,
+            frequency_weights=frequency_weights,
+            precision_weights=precision_weights,
             validate_intercept=validate_intercept,
         )
         model._copy_formula(self.glm)

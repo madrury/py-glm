@@ -15,7 +15,8 @@ from glm.types import (
     MeanVector,
     ReferenceDistribution,
     ResponseVector,
-    SampleWeights,
+    ObservationWeights,
+    WorkingWeights,
     UnitDeviances,
     VarianceVector,
 )
@@ -132,10 +133,11 @@ class ExponentialFamily(ABC):
         self,
         y: ResponseVector,
         mu: MeanVector,
-        weights: SampleWeights | None = None,
+        weights: ObservationWeights | None = None,
     ) -> Deviance:
         """The sum of the unit deviances, each multiplied by its weight, if
-        weights are given."""
+        weights are given: each row's frequency weight times its precision
+        weight."""
         unit_deviances = self.unit_deviance(y, mu)
         if weights is not None:
             unit_deviances = weights * unit_deviances
@@ -190,7 +192,7 @@ class Gaussian(ExponentialFamily):
     def initial_working_response(self, y: ResponseVector) -> ResponseVector:
         return y
 
-    def initial_working_weights(self, y: ResponseVector) -> SampleWeights:
+    def initial_working_weights(self, y: ResponseVector) -> WorkingWeights:
         return (1 / len(y)) * np.ones(len(y))
 
 
@@ -218,10 +220,13 @@ class Bernoulli(ExponentialFamily):
 
     def unit_deviance(self, y: ResponseVector, mu: MeanVector) -> UnitDeviances:
         # The binomial unit deviance, so that a response may also be a
-        # proportion of successes, weighted by its number of trials. xlogy
-        # takes 0 log(0) as 0, the saturated model's log-likelihood for an
-        # outcome it fits exactly; for a 0/1 response, the y log(y) terms are
-        # always 0, leaving -2 (y log(mu) + (1 - y) log(1 - mu)).
+        # proportion of successes, weighted by its number of trials (i.e.
+        # binomial data). xlogy takes 0 log(0) as 0, the saturated model's
+        # log-likelihood for an outcome it fits exactly. For a 0/1 response, the
+        # y log(y) terms are always 0, leaving:
+        #     -2 (y log(mu) + (1 - y) log(1 - mu))
+        # which is maybe more familiar in ML tradition as twice the log loss
+        # (binary cross-entropy).
         unit_deviances: UnitDeviances = np.asarray(
             2 * (xlogy(y, y / mu) + xlogy(1 - y, (1 - y) / (1 - mu))),
             dtype=np.float64,
@@ -239,7 +244,7 @@ class Bernoulli(ExponentialFamily):
     def initial_working_response(self, y: ResponseVector) -> ResponseVector:
         return (y - 0.5) / 0.25
 
-    def initial_working_weights(self, y: ResponseVector) -> SampleWeights:
+    def initial_working_weights(self, y: ResponseVector) -> WorkingWeights:
         return (1 / len(y)) * 0.25 * np.ones(len(y))
 
 

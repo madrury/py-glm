@@ -14,29 +14,32 @@ from glm.types import (
     CoefficientSummary,
     CoefficientVector,
     CovarianceMatrix,
-    Deviance,
-    DevianceGradient,
     DesignFrame,
     DesignMatrix,
     DesignSpec,
+    Deviance,
+    DevianceGradient,
     Formula,
+    FrequencyWeights,
     InformationMatrix,
     InverseLinkDerivative,
     MeanVector,
+    ObservationWeights,
     Offset,
     PValueVector,
+    PrecisionWeights,
     ResponseVector,
-    SampleWeights,
     StandardErrorVector,
     Standardization,
     VarianceVector,
+    WorkingWeights,
 )
 from glm.utils import (
     check_commensurate,
     check_intercept,
     check_no_missing_values,
     check_offset,
-    check_sample_weights,
+    check_weights,
     has_converged,
     has_intercept_column,
     default_X_names,
@@ -138,9 +141,11 @@ class GLM:
         The estimated information matrix. This information matrix is evaluated
         at the fit parameters.
 
-    n: integer, positive
-        The number of samples used to fit the model, or the sum of the sample
-        weights.
+    n: float, positive
+        The number of observations the model was fit to: the sum of the
+        frequency weights of the rows with a non-zero weight. Precision weights
+        don't add observations: a precise or imprecise row is still one row
+        either way.
 
     p: integer, positive
         The number of fit parameters in the model.
@@ -184,7 +189,8 @@ class GLM:
         y_name: str | None = None,
         warm_start: CoefficientVector | None = None,
         offset: Offset | None = None,
-        sample_weights: SampleWeights | None = None,
+        frequency_weights: FrequencyWeights | None = None,
+        precision_weights: PrecisionWeights | None = None,
         max_iter: int = 100,
         tol: float = 0.1**5,
         validate_intercept: bool = True,
@@ -222,10 +228,18 @@ class GLM:
             This is specially useful in models with exposures, as in Poisson
             regression.
 
-        sample_weights: array, shape (n_sample, )
-            Sample weights used in the deviance minimized by the model. If
-            provided, each term in the deviance being minimized is multiplied
-            by its corrosponding weight.
+        frequency_weights: array, shape (n_samples, )
+            How many identical observations each row stands for, e.g. for data
+            compressed by storing repeated records once, with a count. Fitting
+            with them is equivalent to fitting to the expanded data.
+
+        precision_weights: array, shape (n_samples, )
+            How much more precise each row's response is than a single
+            observation's: the response's variance is the family's variance
+            divided by the weight. For example, a proportion of successes,
+            weighted by its number of trials, or an average, weighted by the
+            number of values averaged. These are what R's glm calls prior
+            weights.
 
         max_iter: positive integer
             The maximum number of iterations for the fitting algorithm.
@@ -239,10 +253,32 @@ class GLM:
             Should we defensively check that column 0 of the design matrix,
             X[:, 0], is an intercept? Defaults to True.
 
+
         Returns
         -------
         self: GLM object
             The fit model.
+
+        Notes
+        -----
+        Frequency and precision weights give the same coefficients, but
+        different degrees of freedom: only frequency weights record the number
+        of observations.
+
+        Precision weights are used when a row of data represents a mean of
+        multiple units. So a row is one observation of an average, and as such,
+        has smaller variance than a single observed instance. For example, a row
+        may record y = k/m as the proportion of successes in m binomial trials.
+        Here the variance of a single observed proportion is:
+
+            var(y) = var(k)/m² = m μ(1 - μ) / m² = μ(1 - μ)/m
+
+        The family's variance function alone would overestimate it as μ(1 - μ).
+        Passing precision weights m fixes this issue, which leads to appropriate
+        standard errors (and dispersions for families that estimate one).
+
+        The two weights can be combined: each row's weight in the deviance is
+        their product.
         """
         design_matrix, response = self._prepare_data(X, y, formula, X_names, y_name)
         return self._fit(
@@ -250,7 +286,8 @@ class GLM:
             response,
             warm_start=warm_start,
             offset=offset,
-            sample_weights=sample_weights,
+            frequency_weights=frequency_weights,
+            precision_weights=precision_weights,
             max_iter=max_iter,
             tol=tol,
             validate_intercept=validate_intercept,
@@ -324,7 +361,8 @@ class GLM:
         *,
         warm_start: CoefficientVector | None,
         offset: Offset | None,
-        sample_weights: SampleWeights | None,
+        frequency_weights: FrequencyWeights | None,
+        precision_weights: PrecisionWeights | None,
         max_iter: int,
         tol: float,
         validate_intercept: bool,
@@ -342,10 +380,11 @@ class GLM:
             offset = np.zeros(X.shape[0])
         check_offset(y, offset)
         check_no_missing_values("offset", offset)
-        if sample_weights is None:
-            sample_weights = np.ones(X.shape[0])
-        check_sample_weights(y, sample_weights)
-        check_no_missing_values("sample_weights", sample_weights)
+        frequency_weights = check_weights("frequency_weights", y, frequency_weights)
+        precision_weights = check_weights("precision_weights", y, precision_weights)
+        # Each row's weight in the fit: the weight on its contribution to the
+        # deviance.
+        observation_weights: ObservationWeights = frequency_weights * precision_weights
         penalized_coefficients = self._penalized_coefficients(X)
 
         family = self.family
@@ -353,26 +392,26 @@ class GLM:
             # Start from the intercept-only model: its estimate of the mean is
             # the weighted mean response, so its intercept is that mean on the
             # linear predictor scale, net of the average offset.
-            ȳ = np.average(y, weights=sample_weights)
+            ȳ = np.average(y, weights=observation_weights)
             # The intercept-only model fits the same mean, ȳ, for every
-            # observation, so its linear predictor is constant: take the first
-            # element.
+            # observation, so its linear predictor is constant.
             μ_null = np.full(X.shape[0], ȳ)
             with np.errstate(divide="ignore"):
+                # We just need a scalar.
                 intercept = family.link(μ_null)[0]
             # E.g. an all-zero Poisson or binary response: the intercept-only
             # estimate is infinite, so no finite estimate can exist.
             if not np.isfinite(intercept):
                 raise ValueError(NON_FINITE_ESTIMATES_MESSAGE)
             warm_start = np.zeros(X.shape[1])
-            warm_start[0] = intercept - np.average(offset, weights=sample_weights)
+            warm_start[0] = intercept - np.average(offset, weights=observation_weights)
         # Penalized fits work on standardized columns, so that the penalty does
         # not depend on the predictors' units. Unpenalized fits are unchanged
         # by standardizing, so skip it for them.
         standardizer = None
         design, β = X, warm_start
         if self._is_regularized() and self.standardize != "none":
-            standardizer = Standardizer(self.standardize).fit(X, sample_weights)
+            standardizer = Standardizer(self.standardize).fit(X, frequency_weights)
             design = standardizer.transform(X)
             β = standardizer.coef_to_standardized(warm_start)
         η = design @ β + offset
@@ -387,15 +426,15 @@ class GLM:
             μ = family.inv_link(η)
             dμ = family.d_inv_link(η, μ)
             var = family.variance(μ)
-            dβ = self._dβ(design, y, μ, dμ, var, sample_weights)
-            ddβ = self._ddβ(design, dμ, var, sample_weights)
+            dβ = self._dβ(design, y, μ, dμ, var, observation_weights)
+            ddβ = self._ddβ(design, dμ, var, observation_weights)
             if self._is_regularized():
                 dβ = dβ + self._d_penalty(β, penalized_coefficients)
                 ddβ = self._dd_penalty(ddβ, penalized_coefficients)
             β = β - np.linalg.solve(ddβ, dβ)
             penalized_deviance_previous = penalized_deviance
             penalized_deviance = self._penalized_deviance(
-                y, μ, β, penalized_coefficients
+                y, μ, β, penalized_coefficients, observation_weights
             )
             is_converged = has_converged(
                 penalized_deviance, penalized_deviance_previous, tol
@@ -407,10 +446,10 @@ class GLM:
         if not np.all(np.isfinite(β)):
             raise ValueError(NON_FINITE_ESTIMATES_MESSAGE)
         self.coef_ = β
-        self.deviance_ = family.deviance(y, μ)
-        self.n = float(np.sum(sample_weights))
+        self.deviance_ = family.deviance(y, μ, observation_weights)
+        self.n = float(np.sum(frequency_weights[observation_weights > 0]))
         self.p = X.shape[1]
-        self.information_matrix_ = self._ddβ(X, dμ, var, sample_weights)
+        self.information_matrix_ = self._ddβ(X, dμ, var, observation_weights)
         return self
 
     def predict(
@@ -478,23 +517,42 @@ class GLM:
             η = η + offset
         return self.family.inv_link(η)
 
-    def score(self, X: DesignMatrix | DesignFrame, y: ResponseVector) -> Deviance:
+    def score(
+        self,
+        X: DesignMatrix | DesignFrame,
+        y: ResponseVector,
+        *,
+        offset: Offset | None = None,
+        frequency_weights: FrequencyWeights | None = None,
+        precision_weights: PrecisionWeights | None = None,
+    ) -> Deviance:
         """Return the deviance of a fit model on a given dataset.
 
         Parameters
         ----------
-        X: array, shape (n_samples, n_features)
+        X: array, shape (n_samples, n_features) or pd.DataFrame
             Data set.
 
         y: array, shape (n_samples, )
             Response vector aligned to X.
 
+        offset: array, shape (n_samples, )
+            Offsets to add on the linear predictor, as for predict.
+
+        frequency_weights, precision_weights: arrays, shape (n_samples, )
+            Weights on each row's contribution to the deviance, as for fit.
+
         Returns
         -------
         deviance: float
-            Model deviance scored using supplied data and labels.
+            The model's deviance on the data.
         """
-        return self.family.deviance(y, self.predict(X))
+        frequency_weights = check_weights("frequency_weights", y, frequency_weights)
+        precision_weights = check_weights("precision_weights", y, precision_weights)
+        observation_weights: ObservationWeights = frequency_weights * precision_weights
+        return self.family.deviance(
+            y, self.predict(X, offset=offset), observation_weights
+        )
 
     @property
     def dispersion_(self) -> float:
@@ -615,9 +673,9 @@ class GLM:
         μ: MeanVector,
         dμ: InverseLinkDerivative,
         var: VarianceVector,
-        sample_weights: SampleWeights,
+        observation_weights: ObservationWeights,
     ) -> DevianceGradient:
-        working_residuals = sample_weights * (y - μ) * (dμ / var)
+        working_residuals = observation_weights * (y - μ) * (dμ / var)
         return -np.sum(X * working_residuals.reshape(-1, 1), axis=0)
 
     def _ddβ(
@@ -625,10 +683,10 @@ class GLM:
         X: DesignMatrix,
         dμ: InverseLinkDerivative,
         var: VarianceVector,
-        sample_weights: SampleWeights,
+        observation_weights: ObservationWeights,
     ) -> InformationMatrix:
-        working_h_weights = (sample_weights * dμ**2 / var).reshape(-1, 1)
-        information: InformationMatrix = X.T @ (X * working_h_weights)
+        working_weights: WorkingWeights = observation_weights * dμ**2 / var
+        information: InformationMatrix = X.T @ (X * working_weights[:, None])
         return information
 
     def _penalized_coefficients(self, X: DesignMatrix) -> CoefficientMask:
@@ -645,9 +703,10 @@ class GLM:
         μ: MeanVector,
         β: CoefficientVector,
         penalized_coefficients: CoefficientMask,
+        observation_weights: ObservationWeights,
     ) -> Deviance:
         penalty = self.alpha * float(np.sum(β[penalized_coefficients] ** 2))
-        return self.family.deviance(y, μ) + penalty
+        return self.family.deviance(y, μ, observation_weights) + penalty
 
     def _d_penalty(
         self, β: CoefficientVector, penalized_coefficients: CoefficientMask

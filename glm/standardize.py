@@ -17,7 +17,7 @@ from glm.types import (
     ColumnCenters,
     ColumnScales,
     DesignMatrix,
-    SampleWeights,
+    FrequencyWeights,
     Standardization,
 )
 from glm.utils import has_intercept_column
@@ -66,10 +66,17 @@ class Standardizer:
         self.centers_: ColumnCenters | None = None
         self.scales_: ColumnScales | None = None
 
-    def fit(self, X: DesignMatrix, sample_weights: SampleWeights | None = None) -> Self:
-        """Learn each column's center and scale, as its weighted mean and
-        standard deviation."""
-        weights = np.ones(X.shape[0]) if sample_weights is None else sample_weights
+    def fit(
+        self, X: DesignMatrix, frequency_weights: FrequencyWeights | None = None
+    ) -> Self:
+        """Learn each column's center and scale, as its mean and standard
+        deviation, weighted by the frequency weights. Precision weights
+        describe how precise each row's response is, not how common its
+        predictors are, so they don't enter.
+        """
+        weights = (
+            np.ones(X.shape[0]) if frequency_weights is None else frequency_weights
+        )
         means = np.average(X, axis=0, weights=weights)
         sds = np.sqrt(np.average((X - means) ** 2, axis=0, weights=weights))
 

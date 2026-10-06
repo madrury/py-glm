@@ -81,14 +81,14 @@ def test_non_parametric_bootstrap_resamples_weights_with_rows(
     X, y, _ = exposure_data
     # Zero-weight rows get extreme responses: they can only influence the fit
     # if a weight is attached to the wrong row after resampling.
-    sample_weights = np.ones(len(y))
-    sample_weights[::4] = 0.0
+    frequency_weights = np.ones(len(y))
+    frequency_weights[::4] = 0.0
     y = y.copy()
     y[::4] = 1000.0
-    model = GLM(Poisson()).fit(X, y, sample_weights=sample_weights)
+    model = GLM(Poisson()).fit(X, y, frequency_weights=frequency_weights)
     assert model.coef_ is not None
     models = Simulation(model).non_parametric_bootstrap(
-        X, y, n_sim=N_SIM, sample_weights=sample_weights
+        X, y, n_sim=N_SIM, frequency_weights=frequency_weights
     )
     for boot in models:
         assert boot.coef_ is not None

@@ -37,8 +37,24 @@ binary outcomes."""
 type Offset = npt.NDArray[np.float64]
 """A known term added to the linear predictor, shape (n,)."""
 
-type SampleWeights = npt.NDArray[np.float64]
-"""Per-observation weights on the deviance, shape (n,)."""
+type FrequencyWeights = npt.NDArray[np.float64]
+"""How many identical observations each row stands for, shape (n,): the data
+have been compressed, and a row with weight 3 is three observations."""
+
+type PrecisionWeights = npt.NDArray[np.float64]
+"""How much more precise each row's response is than a single observation's,
+shape (n,): Var[y | X] = dispersion * V(μ) / weight. Typical when a response
+is an average or proportion over several units, e.g. a proportion of successes
+weighted by its number of trials. R's glm calls these prior weights."""
+
+type ObservationWeights = npt.NDArray[np.float64]
+"""Each row's weight in a fit, its frequency weight times its precision weight,
+shape (n,): the weight on its contribution to the deviance."""
+
+type WorkingWeights = npt.NDArray[np.float64]
+"""The weights W of Fisher scoring's weighted least squares step, shape (n,):
+W = observation weight * (dμ/dη)² / V(μ), so that the information matrix is
+X'WX. Unlike the observation weights, they depend on the current fit."""
 
 # Penalized fitting.
 type AlphaGrid = npt.NDArray[np.float64]

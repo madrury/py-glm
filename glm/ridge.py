@@ -18,16 +18,19 @@ from glm.types import (
     DesignMatrix,
     EffectiveDegreesOfFreedom,
     Formula,
+    FrequencyWeights,
     InformationEigenvalues,
     LinearPredictor,
     MeanVector,
+    ObservationWeights,
     Offset,
+    PrecisionWeights,
     ResponseVector,
-    SampleWeights,
     Standardization,
     TermColumns,
+    WorkingWeights,
 )
-from glm.utils import has_intercept_column
+from glm.utils import check_weights, has_intercept_column
 
 # The default grid spans from this many times the largest eigenvalue, to this
 # many times smaller than the smallest; see default_alphas.
@@ -139,7 +142,8 @@ class RidgePath:
         X_names: list[str] | None = None,
         y_name: str | None = None,
         offset: Offset | None = None,
-        sample_weights: SampleWeights | None = None,
+        frequency_weights: FrequencyWeights | None = None,
+        precision_weights: PrecisionWeights | None = None,
         max_iter: int = 100,
         tol: float = 0.1**5,
         validate_intercept: bool = True,
@@ -151,12 +155,19 @@ class RidgePath:
         # Encode the data once. Any positive alpha gives the same encoding.
         template = GLM(self.family, alpha=1.0, standardize=self.standardize)
         design, response = template._prepare_data(X, y, formula, X_names, y_name)
+        frequency_weights = check_weights(
+            "frequency_weights", response, frequency_weights
+        )
+        precision_weights = check_weights(
+            "precision_weights", response, precision_weights
+        )
         if self.alphas is None:
             alphas = default_alphas(
                 self.family,
                 design,
                 response,
-                sample_weights=sample_weights,
+                frequency_weights=frequency_weights,
+                precision_weights=precision_weights,
                 standardize=self.standardize,
                 n_alphas=self.n_alphas,
             )
@@ -174,7 +185,8 @@ class RidgePath:
                 y_name=template.y_name,
                 warm_start=warm_start,
                 offset=offset,
-                sample_weights=sample_weights,
+                frequency_weights=frequency_weights,
+                precision_weights=precision_weights,
                 max_iter=max_iter,
                 tol=tol,
                 validate_intercept=validate_intercept,
@@ -186,16 +198,21 @@ class RidgePath:
         self.alphas_ = alphas
         self.models_ = models
         self.term_columns_ = _term_columns(template, design)
-        weights = np.ones(design.shape[0]) if sample_weights is None else sample_weights
-        standardizer = Standardizer(self.standardize).fit(design, weights)
+        # This is intentionally a little wasteful, since we've already
+        # standardized the data when fitting the model. We chose the duplicated
+        # effort for a clean separation of concerns; here we need the
+        # standardized columns and their scales to compute the effective degrees
+        # of freedom of each alpha.
+        standardizer = Standardizer(self.standardize).fit(design, frequency_weights)
         self.scales_ = standardizer.scales_
+        observation_weights: ObservationWeights = frequency_weights * precision_weights
         self.df_ = _effective_degrees_of_freedom(
             models,
             alphas,
             design,
             standardizer.transform(design),
             np.zeros(design.shape[0]) if offset is None else offset,
-            weights,
+            observation_weights,
             has_intercept_column(design),
         )
         return self
@@ -216,7 +233,8 @@ def default_alphas(
     X: DesignMatrix,
     y: ResponseVector,
     *,
-    sample_weights: SampleWeights | None = None,
+    frequency_weights: FrequencyWeights | None = None,
+    precision_weights: PrecisionWeights | None = None,
     standardize: Standardization = "continuous",
     n_alphas: int = 100,
 ) -> AlphaGrid:
@@ -239,16 +257,20 @@ def default_alphas(
     absorbs those directions, so the penalty never needs to resolve them.
     Offsets are ignored, which is harmless for choosing the grid's range.
     """
-    weights = np.ones(X.shape[0]) if sample_weights is None else sample_weights
+    frequency_weights = check_weights("frequency_weights", y, frequency_weights)
+    precision_weights = check_weights("precision_weights", y, precision_weights)
+    observation_weights: ObservationWeights = frequency_weights * precision_weights
     # The intercept-only model fits the weighted mean response everywhere.
-    μ = np.full(X.shape[0], np.average(y, weights=weights))
+    μ = np.full(X.shape[0], np.average(y, weights=observation_weights))
     with np.errstate(divide="ignore"):
         η = family.link(μ)
     if not np.all(np.isfinite(η)):
         raise ValueError(NON_FINITE_ESTIMATES_MESSAGE)
-    Z = Standardizer(standardize).fit(X, weights).transform(X)
+    Z = Standardizer(standardize).fit(X, frequency_weights).transform(X)
     eigenvalues = _profiled_eigenvalues(
-        Z, _working_weights(family, η, μ, weights), has_intercept_column(X)
+        Z,
+        _working_weights(family, η, μ, observation_weights),
+        has_intercept_column(X),
     )
     nonzero = eigenvalues[eigenvalues > 1e-10 * eigenvalues.max()]
     if nonzero.size == 0:
@@ -280,17 +302,19 @@ def _working_weights(
     family: ExponentialFamily,
     η: LinearPredictor,
     μ: MeanVector,
-    sample_weights: SampleWeights,
-) -> SampleWeights:
+    observation_weights: ObservationWeights,
+) -> WorkingWeights:
     """The weights W in the information matrix X'WX, at the means μ."""
-    working_weights: SampleWeights = (
-        sample_weights * family.d_inv_link(η, μ) ** 2 / family.variance(μ)
+    # Observation weights here, since this formula arises from an expected
+    # second derivative of the deviance, which is observation weighted.
+    working_weights: WorkingWeights = (
+        observation_weights * family.d_inv_link(η, μ) ** 2 / family.variance(μ)
     )
     return working_weights
 
 
 def _profiled_eigenvalues(
-    Z: DesignMatrix, working_weights: SampleWeights, has_intercept: bool
+    Z: DesignMatrix, working_weights: WorkingWeights, has_intercept: bool
 ) -> InformationEigenvalues:
     """The eigenvalues of the information matrix of the penalized columns of
     Z, with the intercept, if there is one, profiled out."""
@@ -322,7 +346,7 @@ def _profiled_eigenvalues(
         # by the working weights W (expanding the right hand side gives the
         # left). So centering each column at its weighted mean, and then
         # forming Z'WZ, computes exactly the profiled information. The
-        # Standardizer's centering doesn't suffice: it uses the sample weights,
+        # Standardizer's centering doesn't suffice: it uses the frequency weights,
         # not the working weights, and doesn't center indicator columns.
         Z_penalized = Z_penalized - np.average(
             Z_penalized, axis=0, weights=working_weights
@@ -341,7 +365,7 @@ def _effective_degrees_of_freedom(
     X: DesignMatrix,
     Z: DesignMatrix,
     offset: Offset,
-    sample_weights: SampleWeights,
+    observation_weights: ObservationWeights,
     has_intercept: bool,
 ) -> EffectiveDegreesOfFreedom:
     """sum(d / (d + alpha)) for each model, with d the eigenvalues of its
@@ -356,7 +380,7 @@ def _effective_degrees_of_freedom(
         η = X @ model.coef_ + offset
         μ = family.inv_link(η)
         d = _profiled_eigenvalues(
-            Z, _working_weights(family, η, μ, sample_weights), has_intercept
+            Z, _working_weights(family, η, μ, observation_weights), has_intercept
         )
         df[i] = np.sum(d / (d + alpha))
     return df
