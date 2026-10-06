@@ -97,3 +97,77 @@ def test_sample_without_rng_follows_global_seed(family: ExponentialFamily) -> No
     np.random.seed(154)
     second = family.sample(mu, 0.5)
     np.testing.assert_array_equal(first, second)
+
+
+@pytest.mark.parametrize("family", FAMILIES, ids=repr)
+def test_deviance_sums_unit_deviances(family: ExponentialFamily) -> None:
+    rng = np.random.default_rng(154)
+    mu = rng.uniform(0.2, 0.8, size=50)
+    y = family.sample(mu, 0.5, rng=rng).astype(np.float64)
+    if isinstance(family, Gamma):
+        y = np.maximum(y, 1e-3)
+    weights = rng.uniform(0.5, 2.0, size=50)
+    unit = family.unit_deviance(y, mu)
+    assert unit.shape == (50,)
+    assert np.all(unit >= -1e-12)
+    assert family.deviance(y, mu) == pytest.approx(np.sum(unit))
+    assert family.deviance(y, mu, weights) == pytest.approx(np.sum(weights * unit))
+
+
+@pytest.mark.parametrize(
+    "family, y",
+    [
+        (Gaussian(), np.array([-1.0, 0.5, 3.0])),
+        (Bernoulli(), np.array([0.2, 0.5, 0.9])),  # Proportions.
+        (Poisson(), np.array([0.5, 2.0, 7.0])),
+        (Gamma(), np.array([0.5, 2.0, 7.0])),
+    ],
+    ids=lambda v: repr(v) if isinstance(v, ExponentialFamily) else "",
+)
+def test_unit_deviance_is_zero_for_a_perfect_fit(
+    family: ExponentialFamily, y: np.ndarray
+) -> None:
+    np.testing.assert_allclose(family.unit_deviance(y, y), 0.0, atol=1e-12)
+
+
+def test_bernoulli_unit_deviance_on_binary_data() -> None:
+    # For 0/1 responses, the saturated model's y log(y) terms are all zero.
+    y = np.array([0.0, 1.0, 1.0, 0.0])
+    mu = np.array([0.2, 0.7, 0.4, 0.9])
+    expected = -2 * (y * np.log(mu) + (1 - y) * np.log(1 - mu))
+    np.testing.assert_allclose(Bernoulli().unit_deviance(y, mu), expected)
+
+
+def test_bernoulli_unit_deviance_on_proportions() -> None:
+    y = np.array([0.25, 0.5, 0.9])
+    mu = np.array([0.4, 0.5, 0.6])
+    expected = 2 * (y * np.log(y / mu) + (1 - y) * np.log((1 - y) / (1 - mu)))
+    np.testing.assert_allclose(Bernoulli().unit_deviance(y, mu), expected)
+
+
+def test_grouped_binomial_deviance_differs_from_expanded_by_a_constant() -> None:
+    # Proportions k/m weighted by their trials m, against the same trials
+    # expanded into 0/1 rows. The saturated models differ, so the deviances
+    # differ, but by a constant that doesn't depend on the model's means.
+    trials = np.array([4, 10, 6])
+    successes = np.array([1, 7, 6])
+    family = Bernoulli()
+
+    def deviances(mu: np.ndarray) -> tuple[float, float]:
+        grouped = family.deviance(successes / trials, mu, weights=trials)
+        expanded_y = np.concatenate(
+            [np.r_[np.ones(k), np.zeros(m - k)] for k, m in zip(successes, trials)]
+        )
+        expanded_mu = np.repeat(mu, trials)
+        return grouped, family.deviance(expanded_y, expanded_mu)
+
+    first = deviances(np.array([0.3, 0.6, 0.8]))
+    second = deviances(np.array([0.5, 0.5, 0.95]))
+    assert first[0] - first[1] == pytest.approx(second[0] - second[1])
+    assert first[0] != pytest.approx(first[1])
+
+
+def test_poisson_unit_deviance_with_zero_counts() -> None:
+    # For a count of zero, the unit deviance is 2 mu: 0 log(0) is taken as 0.
+    mu = np.array([0.5, 2.0])
+    np.testing.assert_allclose(Poisson().unit_deviance(np.zeros(2), mu), 2 * mu)

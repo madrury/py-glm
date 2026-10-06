@@ -124,6 +124,9 @@ type CoefficientSummary = pd.DataFrame
 estimates, standard errors, test statistics, p-values, and confidence
 intervals."""
 
+type UnitDeviances = npt.NDArray[np.float64]
+"""Each observation's contribution to the deviance, shape (n,)."""
+
 type Deviance = float
 """A (possibly penalized) deviance."""
 

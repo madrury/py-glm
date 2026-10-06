@@ -6,6 +6,7 @@ from typing import ClassVar
 
 import numpy as np
 import scipy.stats as sts
+from scipy.special import xlogy
 
 from glm.types import (
     Deviance,
@@ -15,6 +16,7 @@ from glm.types import (
     ReferenceDistribution,
     ResponseVector,
     SampleWeights,
+    UnitDeviances,
     VarianceVector,
 )
 
@@ -58,8 +60,14 @@ class ExponentialFamily(ABC):
         The variance function linking the mean to the variance of the
         distribution.
 
+    unit_deviance:
+        Each observation's contribution to the deviance: twice the difference
+        between the log-likelihoods of a saturated model, fitting every
+        observation exactly, and the model, for that observation.
+
     deviance:
-        The deviance of the family. Used as a measure of model fit.
+        The (optionally weighted) sum of the unit deviances, a measure of the
+        model's fit. Implemented once, here, from unit_deviance.
 
     coefficient_test:
         The reference distribution for testing that a coefficient is zero:
@@ -117,8 +125,21 @@ class ExponentialFamily(ABC):
         pass
 
     @abstractmethod
-    def deviance(self, y: ResponseVector, mu: MeanVector) -> Deviance:
+    def unit_deviance(self, y: ResponseVector, mu: MeanVector) -> UnitDeviances:
         pass
+
+    def deviance(
+        self,
+        y: ResponseVector,
+        mu: MeanVector,
+        weights: SampleWeights | None = None,
+    ) -> Deviance:
+        """The sum of the unit deviances, each multiplied by its weight, if
+        weights are given."""
+        unit_deviances = self.unit_deviance(y, mu)
+        if weights is not None:
+            unit_deviances = weights * unit_deviances
+        return float(np.sum(unit_deviances))
 
     @abstractmethod
     def sample(
@@ -154,8 +175,9 @@ class Gaussian(ExponentialFamily):
     def variance(self, mu: MeanVector) -> VarianceVector:
         return np.ones(shape=mu.shape)
 
-    def deviance(self, y: ResponseVector, mu: MeanVector) -> Deviance:
-        return float(np.sum((y - mu) ** 2))
+    def unit_deviance(self, y: ResponseVector, mu: MeanVector) -> UnitDeviances:
+        unit_deviances: UnitDeviances = (y - mu) ** 2
+        return unit_deviances
 
     def sample(
         self,
@@ -194,8 +216,17 @@ class Bernoulli(ExponentialFamily):
     def variance(self, mu: MeanVector) -> VarianceVector:
         return mu * (1 - mu)
 
-    def deviance(self, y: ResponseVector, mu: MeanVector) -> Deviance:
-        return -2 * float(np.sum(y * np.log(mu) + (1 - y) * np.log(1 - mu)))
+    def unit_deviance(self, y: ResponseVector, mu: MeanVector) -> UnitDeviances:
+        # The binomial unit deviance, so that a response may also be a
+        # proportion of successes, weighted by its number of trials. xlogy
+        # takes 0 log(0) as 0, the saturated model's log-likelihood for an
+        # outcome it fits exactly; for a 0/1 response, the y log(y) terms are
+        # always 0, leaving -2 (y log(mu) + (1 - y) log(1 - mu)).
+        unit_deviances: UnitDeviances = np.asarray(
+            2 * (xlogy(y, y / mu) + xlogy(1 - y, (1 - y) / (1 - mu))),
+            dtype=np.float64,
+        )
+        return unit_deviances
 
     def sample(
         self,
@@ -239,13 +270,11 @@ class QuasiPoisson(ExponentialFamily):
     def variance(self, mu: MeanVector) -> VarianceVector:
         return mu
 
-    def deviance(self, y: ResponseVector, mu: MeanVector) -> Deviance:
-        # Need to avoid explicitly calculating y*log(y) when y == 0.
-        y_log_y = np.empty(shape=y.shape)
-        y_log_y[y == 0] = 0
-        y_non_zero = y[y != 0]
-        y_log_y[y != 0] = y_non_zero * np.log(y_non_zero)
-        return 2 * float(np.sum(mu - y - y * np.log(mu) + y_log_y))
+    def unit_deviance(self, y: ResponseVector, mu: MeanVector) -> UnitDeviances:
+        # xlogy takes 0 log(0) as 0, the saturated model's log-likelihood for
+        # a count of zero.
+        unit_deviances: UnitDeviances = 2 * (xlogy(y, y / mu) - (y - mu))
+        return unit_deviances
 
     def sample(
         self,
@@ -299,8 +328,9 @@ class Gamma(ExponentialFamily):
     def variance(self, mu: MeanVector) -> VarianceVector:
         return mu * mu
 
-    def deviance(self, y: ResponseVector, mu: MeanVector) -> Deviance:
-        return 2 * float(np.sum((y - mu) / mu - np.log(y / mu)))
+    def unit_deviance(self, y: ResponseVector, mu: MeanVector) -> UnitDeviances:
+        unit_deviances: UnitDeviances = 2 * ((y - mu) / mu - np.log(y / mu))
+        return unit_deviances
 
     def sample(
         self,
