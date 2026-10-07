@@ -1,5 +1,6 @@
 import warnings
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any, Self
 
 import formulaic
@@ -51,6 +52,61 @@ NON_FINITE_ESTIMATES_MESSAGE = (
     "when the maximum likelihood estimate does not exist, e.g. a binary response "
     "that is all zeros or all ones, or one perfectly separated by the predictors."
 )
+
+
+@dataclass(frozen=True)
+class FitInputs:
+    """Records which optional inputs a model was fit with, so that a bootstrap
+    can check it is given the same ones. A bootstrap refits the model to data
+    like the original's, so leaving out an offset or weights the model was fit
+    with would silently change the model being bootstrapped.
+
+    has_binary_response records whether every response was 0 or 1, which decides
+    whether a Bernoulli model's responses can be simulated in a parametric
+    bootstrap.
+    """
+
+    has_offset: bool
+    has_frequency_weights: bool
+    has_precision_weights: bool
+    has_binary_response: bool
+
+    def check(
+        self,
+        offset: Offset | None,
+        frequency_weights: FrequencyWeights | None,
+        precision_weights: PrecisionWeights | None,
+    ) -> None:
+        """Raise if the given inputs don't match those the model was fit
+        with."""
+        mismatches = []
+        for name, was_given, is_given in [
+            ("offset", self.has_offset, offset is not None),
+            (
+                "frequency_weights",
+                self.has_frequency_weights,
+                frequency_weights is not None,
+            ),
+            (
+                "precision_weights",
+                self.has_precision_weights,
+                precision_weights is not None,
+            ),
+        ]:
+            if was_given and not is_given:
+                mismatches.append(
+                    f"the model was fit with {name}, so pass them here too"
+                )
+            elif is_given and not was_given:
+                mismatches.append(
+                    f"the model was fit without {name}, so don't pass them here"
+                )
+        if mismatches:
+            raise ValueError(
+                "The inputs must match those the model was fit with: "
+                + "; ".join(mismatches)
+                + "."
+            )
 
 
 class GLM:
@@ -150,6 +206,10 @@ class GLM:
     p: integer, positive
         The number of fit parameters in the model.
 
+    fit_inputs_: FitInputs
+        Which optional inputs (an offset, and each kind of weights) the model
+        was fit with, so that a bootstrap can check it's given the same ones.
+
     Notes
     -----
     Instead of supplying a `fit_intercept` argument, we have instead assumed the
@@ -178,6 +238,7 @@ class GLM:
         self.n: float | None = None
         self.p: int | None = None
         self.information_matrix_: InformationMatrix | None = None
+        self.fit_inputs_: FitInputs | None = None
 
     def fit(
         self,
@@ -374,6 +435,14 @@ class GLM:
         check_commensurate(X, y)
         check_no_missing_values("X", X)
         check_no_missing_values("y", y)
+        # Record which optional inputs were given before the defaults below
+        # replace the missing ones with zeros and ones.
+        fit_inputs = FitInputs(
+            has_offset=offset is not None,
+            has_frequency_weights=frequency_weights is not None,
+            has_precision_weights=precision_weights is not None,
+            has_binary_response=bool(np.all((y == 0) | (y == 1))),
+        )
         if validate_intercept:
             check_intercept(X)
         if offset is None:
@@ -450,6 +519,7 @@ class GLM:
         self.n = float(np.sum(frequency_weights[observation_weights > 0]))
         self.p = X.shape[1]
         self.information_matrix_ = self._ddβ(X, dμ, var, observation_weights)
+        self.fit_inputs_ = fit_inputs
         return self
 
     def predict(

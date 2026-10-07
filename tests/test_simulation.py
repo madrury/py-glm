@@ -3,7 +3,7 @@ import pandas as pd
 import pytest
 import scipy.stats as sts
 
-from glm.families import Poisson
+from glm.families import Bernoulli, Gaussian, Poisson
 from glm.glm import GLM
 from glm.simulation import Simulation, coefficient_table
 
@@ -355,8 +355,118 @@ def test_bootstrap_standard_errors(
 def test_bootstrap_rejects_fractional_frequency_weights(
     array_model: tuple[GLM, np.ndarray, np.ndarray],
 ) -> None:
-    model, X, y = array_model
+    _, X, y = array_model
+    frequency_weights = np.full(len(y), 1.5)
+    model = GLM(Poisson()).fit(X, y, frequency_weights=frequency_weights)
     with pytest.raises(ValueError, match="frequency_weights must be whole numbers"):
         Simulation(model).non_parametric_bootstrap(
-            X, y, n_sim=N_SIM, frequency_weights=np.full(len(y), 1.5)
+            X, y, n_sim=N_SIM, frequency_weights=frequency_weights
         )
+
+
+def test_parametric_bootstrap_of_school_averages() -> None:
+    # Each school's average score over m students has variance σ² / m, so the
+    # replicates must draw averages, with precision weight m, not single
+    # students' scores. Drawing single scores gives standard errors about √m,
+    # times too large (in this example, ten times too large).
+    rng = np.random.default_rng(154)
+    n = 50
+    x = rng.normal(size=n)
+    school_sizes = rng.integers(50, 150, size=n).astype(np.float64)
+    X = np.column_stack([np.ones(n), x])
+    # Student level std. dev. is 10, school level is 10/√m
+    averages = 60 + 5 * x + rng.normal(scale=10 / np.sqrt(school_sizes))
+    model = GLM(Gaussian()).fit(X, averages, precision_weights=school_sizes)
+    models = Simulation(model).parametric_bootstrap(
+        X, n_sim=300, precision_weights=school_sizes
+    )
+    np.testing.assert_allclose(
+        coefficient_table(models).std(axis=0),
+        model.coef_standard_error_,
+        rtol=0.25,
+    )
+
+
+def test_parametric_bootstrap_of_binomial_proportions() -> None:
+    # A proportion of successes in m trials: the replicates must draw
+    # Binomial(m, μ) / m, not a single 0/1 trial.
+    rng = np.random.default_rng(154)
+    n = 200
+    X = np.column_stack([np.ones(n), rng.normal(size=n)])
+    trials = rng.integers(5, 30, size=n)
+    successes = rng.binomial(trials, 1 / (1 + np.exp(-(X @ [0.3, -0.8]))))
+    precision_weights = trials.astype(np.float64)
+    model = GLM(Bernoulli()).fit(
+        X, successes / trials, precision_weights=precision_weights
+    )
+    models = Simulation(model).parametric_bootstrap(
+        X, n_sim=300, precision_weights=precision_weights
+    )
+    np.testing.assert_allclose(
+        coefficient_table(models).std(axis=0),
+        model.coef_standard_error_,
+        rtol=0.25,
+    )
+
+
+@pytest.mark.parametrize("bootstrap", ["parametric", "non_parametric"])
+@pytest.mark.parametrize(
+    "fit_with, bootstrap_with, message",
+    [
+        ("offset", None, "fit with offset, so pass them here too"),
+        ("precision_weights", None, "fit with precision_weights, so pass them"),
+        (None, "offset", "fit without offset, so don't pass them here"),
+        (None, "precision_weights", "fit without precision_weights"),
+    ],
+)
+def test_bootstraps_need_the_fit_inputs(
+    array_model: tuple[GLM, np.ndarray, np.ndarray],
+    bootstrap: str,
+    fit_with: str | None,
+    bootstrap_with: str | None,
+    message: str,
+) -> None:
+    # Leaving out an offset or weights the model was fit with, or adding
+    # ones it wasn't, would silently bootstrap a different model.
+    _, X, y = array_model
+    inputs = {"offset": np.full(len(y), 0.1), "precision_weights": np.ones(len(y))}
+    fit_kwargs = {} if fit_with is None else {fit_with: inputs[fit_with]}
+    bootstrap_kwargs = (
+        {} if bootstrap_with is None else {bootstrap_with: inputs[bootstrap_with]}
+    )
+    model = GLM(Poisson()).fit(X, y, **fit_kwargs)
+    simulation = Simulation(model)
+    with pytest.raises(ValueError, match=message):
+        if bootstrap == "parametric":
+            simulation.parametric_bootstrap(X, n_sim=N_SIM, **bootstrap_kwargs)
+        else:
+            simulation.non_parametric_bootstrap(X, y, n_sim=N_SIM, **bootstrap_kwargs)
+
+
+def test_parametric_bootstrap_rejects_frequency_weights(
+    array_model: tuple[GLM, np.ndarray, np.ndarray],
+) -> None:
+    _, X, y = array_model
+    frequency_weights = np.full(len(y), 2.0)
+    model = GLM(Poisson()).fit(X, y, frequency_weights=frequency_weights)
+    with pytest.raises(ValueError, match="Use the non-parametric bootstrap"):
+        Simulation(model).parametric_bootstrap(X, n_sim=N_SIM)
+
+
+def test_parametric_bootstrap_rejects_proportions_without_trials() -> None:
+    rng = np.random.default_rng(154)
+    X = np.column_stack([np.ones(100), rng.normal(size=100)])
+    proportions = rng.uniform(0.1, 0.9, size=100)
+    model = GLM(Bernoulli()).fit(X, proportions)
+    with pytest.raises(ValueError, match="pass their numbers of trials"):
+        Simulation(model).parametric_bootstrap(X, n_sim=N_SIM)
+
+
+def test_parametric_bootstrap_of_binary_responses_needs_no_weights(
+    array_model: tuple[GLM, np.ndarray, np.ndarray],
+) -> None:
+    _, X, y = array_model
+    binary = (y > np.median(y)).astype(np.float64)
+    model = GLM(Bernoulli()).fit(X, binary)
+    models = Simulation(model).parametric_bootstrap(X, n_sim=N_SIM)
+    assert len(models) == N_SIM

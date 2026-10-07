@@ -3,7 +3,8 @@ from collections.abc import Sequence
 import numpy as np
 import pandas as pd
 
-from glm.glm import GLM
+from glm.families import Bernoulli
+from glm.glm import GLM, FitInputs
 from glm.types import (
     CoefficientTable,
     DesignFrame,
@@ -78,6 +79,7 @@ class Simulation:
         X: DesignMatrix | DesignFrame,
         n_sim: int = 100,
         offset: Offset | None = None,
+        precision_weights: PrecisionWeights | None = None,
     ) -> SimulatedResponses:
         """Sample points from the conditional distribution y | X.
 
@@ -99,6 +101,12 @@ class Simulation:
             Offsets to use in the predictions feeding into the conditional
             distributions.
 
+        precision_weights: array, shape (n_samples, )
+            How much more precise each response is than a single observation's,
+            as for GLM.fit. Each sampled response is the average of that many
+            draws, e.g. a proportion of successes in that many trials. Discrete
+            families like binomial and poisson need whole numbers.
+
         Returns
         -------
 
@@ -109,9 +117,13 @@ class Simulation:
         self._check_n_sim(n_sim)
         # predict checks that X has the right type for the model.
         μ = self.glm.predict(X, offset=offset)
+        if precision_weights is not None:
+            precision_weights = check_weights("precision_weights", μ, precision_weights)
         simulations = np.empty(shape=(n_sim, X.shape[0]))
         for i in range(n_sim):
-            simulations[i, :] = self.glm.family.sample(μ, self.glm.dispersion_)
+            simulations[i, :] = self.glm.family.sample(
+                μ, self.glm.dispersion_, precision_weights
+            )
         return simulations
 
     def parametric_bootstrap(
@@ -119,6 +131,7 @@ class Simulation:
         X: DesignMatrix | DesignFrame,
         n_sim: int = 100,
         offset: Offset | None = None,
+        precision_weights: PrecisionWeights | None = None,
         validate_intercept: bool = True,
     ) -> list[GLM]:
         """Fit models to parametric bootstrap samples.
@@ -126,6 +139,15 @@ class Simulation:
         The parametric bootstrap operates by sampling data from the conditional
         distributions y | X for a fixed matrix of predictors X, and then
         fitting glm models to each pair (X, y).
+
+        The offset and weights must be those the model was fit with. Models fit
+        with frequency weights aren't supported: simulating each of the
+        observations a row stands for would need the expanded data, and
+        simulating only their average would understate each replicate's
+        dispersion. Use the non-parametric bootstrap, which resamples them
+        multinomially.  Bernoulli models of proportions are not supported
+        without their numbers of trials as precision weights: without them,
+        nothing says how to simulate a proportion.
 
         Parameters
         ----------
@@ -141,6 +163,12 @@ class Simulation:
             Offsets to use in predictions feeding into the conditional
             distributions.
 
+        precision_weights: array, shape (n_samples, )
+            How much more precise each response is, as for GLM.fit. Each
+            simulated response is the average of that many draws, e.g. a
+            proportion of successes in that many trials, and each replicate is
+            fit with the same weights.
+
         validate_intercept: bool
             Check that column 0 of each replicate's design matrix is an
             intercept. Set to False for models without one, e.g. a formula
@@ -153,13 +181,34 @@ class Simulation:
             The list of fit models.
         """
         self._check_n_sim(n_sim)
+        fit_inputs = self._fit_inputs()
+        if fit_inputs.has_frequency_weights:
+            raise ValueError(
+                "The parametric bootstrap doesn't support models fit with "
+                "frequency weights. Use the non-parametric bootstrap, which "
+                "resamples the observations they stand for."
+            )
+        fit_inputs.check(offset, None, precision_weights)
+        if (
+            isinstance(self.glm.family, Bernoulli)
+            and not fit_inputs.has_precision_weights
+            and not fit_inputs.has_binary_response
+        ):
+            raise ValueError(
+                "The model was fit to proportions, not 0/1 responses, so to "
+                "simulate them, pass their numbers of trials as precision_weights, "
+                "both to GLM.fit and here."
+            )
         design = self._design_matrix(X)
-        simulations = self.sample(X, n_sim, offset=offset)
+        simulations = self.sample(
+            X, n_sim, offset=offset, precision_weights=precision_weights
+        )
         return [
             self._fit_replicate(
                 design,
                 simulations[i, :],
                 offset=offset,
+                precision_weights=precision_weights,
                 validate_intercept=validate_intercept,
             )
             for i in range(n_sim)
@@ -229,6 +278,7 @@ class Simulation:
             The list of fit models.
         """
         self._check_n_sim(n_sim)
+        self._fit_inputs().check(offset, frequency_weights, precision_weights)
         # Encode a formula model's data once, with the specs learned when
         # fitting the original model. Re-learning them on each resample could
         # drop a rare category's column, or change the reference level or a
@@ -308,6 +358,11 @@ class Simulation:
                 "coefficients cannot be estimated. This happens with rare "
                 "categories or near-collinear predictors."
             )
+
+    def _fit_inputs(self) -> FitInputs:
+        if self.glm.fit_inputs_ is None:
+            raise ValueError("Simulations require a fit model.")
+        return self.glm.fit_inputs_
 
     def _fit_replicate(
         self,

@@ -41,20 +41,50 @@ MAX_Z = sts.norm.isf(FALSE_FAILURE_RATE / (2 * N_COMPARISONS))
     ],
     ids=lambda v: type(v).__name__ if isinstance(v, ExponentialFamily) else None,
 )
+@pytest.mark.parametrize("weighted", [False, True], ids=["unweighted", "weighted"])
 def test_sample_moments(
-    family: ExponentialFamily, mu_range: tuple[float, float], dispersion: float
+    family: ExponentialFamily,
+    mu_range: tuple[float, float],
+    dispersion: float,
+    weighted: bool,
 ) -> None:
-    # A GLM's samples must satisfy E[y] = mu and Var[y] = dispersion * V(mu).
+    # A GLM's samples must satisfy E[y] = mu and Var[y] = dispersion * V(mu) / w,
+    # with precision weights w, each sample being the average of w draws.
     # Standardize the draws so both checks reduce to mean 0 and variance 1.
     mu = np.linspace(*mu_range, N_DRAWS)
-    y = family.sample(mu, dispersion)
-    r = (y - mu) / np.sqrt(dispersion * family.variance(mu))
+    weights = None
+    if weighted:
+        weights = np.random.default_rng(154).integers(1, 10, N_DRAWS).astype(float)
+    y = family.sample(mu, dispersion, weights)
+    variance = dispersion * family.variance(mu) / (1.0 if weights is None else weights)
+    r = (y - mu) / np.sqrt(variance)
 
+    # Each check asks whether an average over the draws is as close to its
+    # target as sampling noise allows. If the sampler is right, the r are
+    # independent, each with mean 0 and variance 1. They aren't identically
+    # distributed: each draw has its own mu and w, so their shapes differ (a
+    # Poisson's skewness is 1 / √mu, say). But the Lindeberg-Feller central
+    # limit theorem still applies, as no single draw dominates the average:
+    # the ranges of mu and w above keep each r's third moment bounded. So their
+    # average is approximately normal, with mean 0 and standard error
+    # sd(r) / √N, where sd(r)² is the average of the r's variances. The pooled
+    # r.std() estimates that average, plus the spread of the r's means, which is
+    # zero when the sampler is right, as standardizing gave them all mean 0.
+    #
+    # Dividing the average by its standard error gives a z-score:
+    # approximately standard normal when the sampler is right, and growing like
+    # √N when it's wrong. With N = 200,000 draws, even a small error in the mean
+    # gives a large z-score. Each z-score must stay within ±MAX_Z, the
+    # Bonferroni bound set above, so that a correct sampler fails either check
+    # with probability at most FALSE_FAILURE_RATE.
     z_mean = r.mean() / (r.std() / np.sqrt(N_DRAWS))
     assert abs(z_mean) < MAX_Z
 
-    # The standard error of the mean of r**2 depends on the family's tails, so
-    # estimate it from the draws.
+    # The same logic applies to the variance, through the average of r**2, whose
+    # target is 1. Each r**2 has mean 1 when the sampler is right, but its own
+    # variance, through the underlying draw's fourth moments, which depend on mu
+    # and w.  Again, the pooled standard deviation estimates the average of
+    # those variances, as the r**2 share a mean.
     r_squared = r**2
     z_variance = (r_squared.mean() - 1) / (r_squared.std() / np.sqrt(N_DRAWS))
     assert abs(z_variance) < MAX_Z
@@ -171,3 +201,17 @@ def test_poisson_unit_deviance_with_zero_counts() -> None:
     # For a count of zero, the unit deviance is 2 mu: 0 log(0) is taken as 0.
     mu = np.array([0.5, 2.0])
     np.testing.assert_allclose(Poisson().unit_deviance(np.zeros(2), mu), 2 * mu)
+
+
+@pytest.mark.parametrize("family", [Bernoulli(), Poisson()], ids=repr)
+def test_discrete_samples_need_whole_number_weights(family: ExponentialFamily) -> None:
+    with pytest.raises(ValueError, match="precision_weights must be whole numbers"):
+        family.sample(np.full(3, 0.5), 1.0, np.array([1.0, 2.5, 3.0]))
+
+
+@pytest.mark.parametrize("family", [Gaussian(), Gamma()], ids=repr)
+def test_continuous_samples_allow_fractional_weights(
+    family: ExponentialFamily,
+) -> None:
+    y = family.sample(np.full(3, 2.0), 0.5, np.array([0.5, 2.5, 3.0]))
+    assert y.shape == (3,)

@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import ClassVar
 
 import numpy as np
+import numpy.typing as npt
 import scipy.stats as sts
 from scipy.special import xlogy
 
@@ -16,6 +17,7 @@ from glm.types import (
     ReferenceDistribution,
     ResponseVector,
     ObservationWeights,
+    PrecisionWeights,
     WorkingWeights,
     UnitDeviances,
     VarianceVector,
@@ -76,10 +78,13 @@ class ExponentialFamily(ABC):
         not.
 
     sample:
-        A sampler from the conditional distribution of the response. Pass a
-        numpy Generator as rng to make draws reproducible; without one, draws
-        come from numpy's global random state, so np.random.seed controls
-        them.
+        A sampler from the conditional distribution of the response. With
+        precision weights w, each response is the average of w draws, with
+        variance: dispersion * V(μ) / w. E.g. a proportion of successes in w
+        trials. Discrete families need whole-number weights for this to make
+        sense. Pass a numpy Generator as rng to make draws reproducible; without
+        one, draws come from numpy's global random state, so np.random.seed
+        controls them.
 
     Attributes
     ----------
@@ -148,6 +153,7 @@ class ExponentialFamily(ABC):
         self,
         mu: MeanVector,
         dispersion: float,
+        precision_weights: PrecisionWeights | None = None,
         rng: np.random.Generator | None = None,
     ) -> ResponseVector:
         pass
@@ -185,9 +191,11 @@ class Gaussian(ExponentialFamily):
         self,
         mu: MeanVector,
         dispersion: float,
+        precision_weights: PrecisionWeights | None = None,
         rng: np.random.Generator | None = None,
     ) -> ResponseVector:
-        return _generator(rng).normal(mu, np.sqrt(dispersion))
+        weights = 1.0 if precision_weights is None else precision_weights
+        return _generator(rng).normal(mu, np.sqrt(dispersion / weights))
 
     def initial_working_response(self, y: ResponseVector) -> ResponseVector:
         return y
@@ -237,9 +245,14 @@ class Bernoulli(ExponentialFamily):
         self,
         mu: MeanVector,
         dispersion: float,
+        precision_weights: PrecisionWeights | None = None,
         rng: np.random.Generator | None = None,
     ) -> ResponseVector:
-        return _generator(rng).binomial(1, mu)
+        if precision_weights is None:
+            return _generator(rng).binomial(1, mu)
+        # The proportion of successes in w trials.
+        trials = _are_whole_numbers(precision_weights, self)
+        return _generator(rng).binomial(trials, mu) / trials
 
     def initial_working_response(self, y: ResponseVector) -> ResponseVector:
         return (y - 0.5) / 0.25
@@ -285,9 +298,14 @@ class QuasiPoisson(ExponentialFamily):
         self,
         mu: MeanVector,
         dispersion: float,
+        precision_weights: PrecisionWeights | None = None,
         rng: np.random.Generator | None = None,
     ) -> ResponseVector:
-        return _generator(rng).poisson(mu)
+        if precision_weights is None:
+            return _generator(rng).poisson(mu)
+        # The average of w counts: their total is Poisson, with mean w * mu.
+        counts = _are_whole_numbers(precision_weights, self)
+        return _generator(rng).poisson(counts * mu) / counts
 
 
 class Poisson(QuasiPoisson):
@@ -341,11 +359,17 @@ class Gamma(ExponentialFamily):
         self,
         mu: MeanVector,
         dispersion: float,
+        precision_weights: PrecisionWeights | None = None,
         rng: np.random.Generator | None = None,
     ) -> ResponseVector:
         # The shape is dimensionless and sets the coefficient of variation,
         # CV**2 = 1 / shape = dispersion. The scale carries the units of y.
-        shape, scale = 1 / dispersion, mu * dispersion
+        shape: float | PrecisionWeights = 1 / dispersion
+        scale = mu * dispersion
+        # The average of w draws: its shape is w times as large, and its scale
+        # w times smaller, keeping the mean, with a w times smaller variance.
+        if precision_weights is not None:
+            shape, scale = shape * precision_weights, scale / precision_weights
         return _generator(rng).gamma(shape=shape, scale=scale)
 
 
@@ -361,6 +385,19 @@ class Exponential(Gamma):
     """
 
     has_dispersion = False
+
+
+def _are_whole_numbers(
+    precision_weights: PrecisionWeights, family: ExponentialFamily
+) -> npt.NDArray[np.int64]:
+    """Precision weights as counts of draws to be averaged, which a discrete
+    family needs to be whole numbers."""
+    if not np.all(precision_weights == np.round(precision_weights)):
+        raise ValueError(
+            f"precision_weights must be whole numbers to sample from {family!r}, "
+            "as each response is the average of that many draws."
+        )
+    return precision_weights.astype(np.int64)
 
 
 def _generator(rng: np.random.Generator | None) -> np.random.Generator:
