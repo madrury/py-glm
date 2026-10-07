@@ -95,6 +95,32 @@ def test_non_parametric_bootstrap_resamples_weights_with_rows(
         assert np.all(np.abs(boot.coef_ - model.coef_) < 0.5)
 
 
+def test_frequency_weighted_bootstrap_matches_expanded_data() -> None:
+    # A frequency weight of f is f independent observations, so the bootstrap
+    # must resample observations, as it would the expanded data, not whole
+    # rows: resampling a row whole moves all its copies together, as if they
+    # were one cluster, overstating the coefficients' variability. Compare to
+    # the model-based standard errors, which are right for a correctly
+    # specified Poisson model. Resampling whole rows gives about twice these,
+    # with weights from 1 to 7.
+    rng = np.random.default_rng(154)
+    n = 200
+    X = np.column_stack([np.ones(n), rng.normal(size=n)])
+    y = rng.poisson(np.exp(0.5 + 0.3 * X[:, 1])).astype(np.float64)
+    frequency_weights = rng.integers(1, 8, size=n).astype(np.float64)
+    model = GLM(Poisson()).fit(X, y, frequency_weights=frequency_weights)
+    models = Simulation(model).non_parametric_bootstrap(
+        X, y, n_sim=300, frequency_weights=frequency_weights
+    )
+    # With 300 replicates, a bootstrap standard error is within about 4% of
+    # its limit.
+    np.testing.assert_allclose(
+        coefficient_table(models).std(axis=0),
+        model.coef_standard_error_,
+        rtol=0.25,
+    )
+
+
 @pytest.fixture
 def array_model(df: pd.DataFrame) -> tuple[GLM, np.ndarray, np.ndarray]:
     X = np.column_stack([np.ones(len(df)), df["x"]])
@@ -324,3 +350,13 @@ def test_bootstrap_standard_errors(
     ratio = coefficient_table(models).std().to_numpy() / expected
     z = (ratio - 1) * np.sqrt(2 * N_SIM_SE)
     assert np.all(np.abs(z) < SE_MAX_Z)
+
+
+def test_bootstrap_rejects_fractional_frequency_weights(
+    array_model: tuple[GLM, np.ndarray, np.ndarray],
+) -> None:
+    model, X, y = array_model
+    with pytest.raises(ValueError, match="frequency_weights must be whole numbers"):
+        Simulation(model).non_parametric_bootstrap(
+            X, y, n_sim=N_SIM, frequency_weights=np.full(len(y), 1.5)
+        )

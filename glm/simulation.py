@@ -14,7 +14,7 @@ from glm.types import (
     PrecisionWeights,
     SimulatedResponses,
 )
-from glm.utils import default_X_names
+from glm.utils import check_weights, default_X_names
 
 
 def coefficient_table(models: Sequence[GLM]) -> CoefficientTable:
@@ -177,9 +177,17 @@ class Simulation:
     ) -> list[GLM]:
         """Fit models to non-parametric bootstrap samples.
 
-        The non-parametric bootstrap operates by sampling data with replacement
-        from the pair (X, y), and then fitting glm models to the resampled
-        pairs.
+        The non-parametric bootstrap operates by sampling observations with
+        replacement from the pairs (X, y), and then fitting glm models to the
+        resampled pairs.
+
+        Observations, not rows, are resampled: a row with frequency weight f
+        stands for f independent observations, and each is drawn separately,
+        exactly as when bootstrapping the expanded data. A replicate draws N
+        observations, where N is the sum of the frequency weights, and so
+        draws row i a multinomial number of times, with probability f_i / N,
+        which becomes its frequency weight in the replicate. Without
+        frequency weights, this is the usual bootstrap of rows.
 
         Parameters
         ----------
@@ -199,10 +207,15 @@ class Simulation:
             Offsets to use in predictions feeding into the conditional
             distributions.
 
-        frequency_weights, precision_weights: arrays, shape (n_samples, )
-            Weights used when fitting each model, as for GLM.fit. Each
-            resampled row keeps its weights. A frequency-weighted row is
-            resampled whole, all its identical observations together.
+        frequency_weights: array, shape (n_samples, )
+            How many identical observations each row stands for, as for
+            GLM.fit. Each observation is resampled separately, so they must be
+            whole numbers.
+
+        precision_weights: array, shape (n_samples, )
+            How much more precise each row's response is, as for GLM.fit. A
+            precision-weighted row is one observation, of an average or
+            proportion, so it is resampled whole, keeping its weight.
 
         validate_intercept: bool
             Check that column 0 of each replicate's design matrix is an
@@ -240,10 +253,21 @@ class Simulation:
                     f"got a {type(y)}"
                 )
             design, response = X, y
-        n = design.shape[0]
+        frequency_weights = check_weights(
+            "frequency_weights", response, frequency_weights
+        )
+        if not np.all(frequency_weights == np.round(frequency_weights)):
+            raise ValueError(
+                "frequency_weights must be whole numbers to resample the "
+                "observations they stand for."
+            )
+        n_observations = int(np.sum(frequency_weights))
+        probabilities = frequency_weights / n_observations
         models = []
         for _ in range(n_sim):
-            idxs = np.random.choice(n, n)
+            # How many times each row's observations are drawn.
+            counts = np.random.multinomial(n_observations, probabilities)
+            idxs = np.flatnonzero(counts)
             self._check_estimable(design[idxs])
             # Per-row arrays must be resampled with the same indices as X.
             models.append(
@@ -251,9 +275,7 @@ class Simulation:
                     design[idxs],
                     response[idxs],
                     offset=None if offset is None else offset[idxs],
-                    frequency_weights=(
-                        None if frequency_weights is None else frequency_weights[idxs]
-                    ),
+                    frequency_weights=counts[idxs].astype(np.float64),
                     precision_weights=(
                         None if precision_weights is None else precision_weights[idxs]
                     ),
