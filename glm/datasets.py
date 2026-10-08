@@ -119,8 +119,10 @@ def make_regression(
         uncorrelated to almost collinear.
 
     categorical: sequence, optional
-        For each categorical variable, either its number of levels, each
-        equally likely, or each level's probability.
+        For each categorical variable, its levels: their number, each equally
+        likely; each level's probability; their names, each equally likely; or
+        a mapping from each level's name to its probability. The first level is
+        the reference level.
 
     n_zero_coefficients: non-negative integer
         How many coefficients to set to zero, at most the number of columns.
@@ -183,15 +185,18 @@ def make_frame(
 
     The model is as for make_regression, always with an intercept, and with
     the continuous predictors named x1, x2, ..., the correlated ones last. A
-    categorical variable's levels are named a, b, c, ..., with a the
-    reference level.
+    categorical variable's levels are named a, b, c, ..., unless given names,
+    and its first level is the reference level. Its column is a pandas
+    Categorical with the levels in that order, which formulaic's C() respects.
 
     Parameters
     ----------
 
     categorical: mapping, optional
-        Each categorical variable's name, and either its number of levels,
-        each equally likely, or each level's probability.
+        Each categorical variable's name, and its levels: their number, each
+        equally likely; each level's probability; their names, each equally
+        likely, e.g. ["low", "medium", "high"]; or a mapping from each level's
+        name to its probability, e.g. {"low": 0.5, "medium": 0.3, "high": 0.2}.
 
     exposure_range: (low, high), optional
         If given, each observation gets an exposure, drawn uniformly from this
@@ -239,7 +244,7 @@ def make_frame(
     )
     coef_names = ["Intercept", *continuous_names]
     for name, (codes, levels) in zip(categorical, simulation.categories):
-        columns[name] = np.asarray(levels)[codes]
+        columns[name] = pd.Categorical(np.asarray(levels)[codes], categories=levels)
         coef_names += [f"C({name})[T.{level}]" for level in levels[1:]]
     if simulation.exposure is not None:
         columns["exposure"] = simulation.exposure
@@ -291,7 +296,8 @@ def _simulate(
     ]:
         if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
             raise ValueError(f"{name} must be an integer of at least {minimum}.")
-    probabilities = [_level_probabilities(levels) for levels in categorical]
+    parsed_levels = [_parse_levels(levels) for levels in categorical]
+    probabilities = [p for p, _ in parsed_levels]
     n_columns = (
         int(intercept)
         + n_uncorrelated
@@ -345,11 +351,11 @@ def _simulate(
         correlated = rng.normal(size=(n_samples, n_correlated)) @ mixing
         columns.append((correlated - correlated.mean(axis=0)) / correlated.std(axis=0))
     categories = []
-    for p in probabilities:
+    for p, names in parsed_levels:
         codes = rng.choice(len(p), size=n_samples, p=p)
         # Reference coding: an indicator for each level but the first.
         columns.append((codes[:, None] == np.arange(1, len(p))).astype(np.float64))
-        categories.append((codes, _level_names(len(p))))
+        categories.append((codes, names))
     X: DesignMatrix = np.column_stack(columns)
 
     coef: CoefficientVector = rng.uniform(*coef_range, size=n_columns)
@@ -367,11 +373,34 @@ def _simulate(
     return _Simulation(X, y, coef, μ, exposure, categories)
 
 
-def _level_probabilities(levels: CategoricalLevels) -> np.ndarray:
-    if isinstance(levels, int) and not isinstance(levels, bool):
+def _parse_levels(levels: CategoricalLevels) -> tuple[np.ndarray, list[str]]:
+    """Each level's probability, and its name."""
+    if isinstance(levels, bool):
+        raise ValueError(f"A categorical's levels can't be a bool, got {levels}.")
+    if isinstance(levels, int):
         if levels < 2:
             raise ValueError(f"A categorical needs at least 2 levels, got {levels}.")
-        return np.full(levels, 1 / levels)
+        return np.full(levels, 1 / levels), _level_names(levels)
+    if isinstance(levels, Mapping):
+        names = list(levels)
+        _check_level_names(names)
+        return _level_probabilities(list(levels.values())), names
+    if len(levels) > 0 and all(isinstance(level, str) for level in levels):
+        names = [str(level) for level in levels]
+        _check_level_names(names)
+        return np.full(len(names), 1 / len(names)), names
+    p = _level_probabilities(levels)
+    return p, _level_names(len(p))
+
+
+def _check_level_names(names: list[str]) -> None:
+    if len(names) < 2 or not all(isinstance(name, str) for name in names):
+        raise ValueError(f"A categorical needs at least 2 level names, got {names}.")
+    if len(set(names)) != len(names):
+        raise ValueError(f"Level names must be distinct, got {names}.")
+
+
+def _level_probabilities(levels: object) -> np.ndarray:
     p = np.asarray(levels, dtype=np.float64)
     if p.ndim != 1 or len(p) < 2 or np.any(p < 0) or not np.isclose(p.sum(), 1.0):
         raise ValueError(

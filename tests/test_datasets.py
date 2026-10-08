@@ -248,6 +248,10 @@ def test_level_names_sort_in_level_order() -> None:
         ({"g": [1.0]}, "at least 2"),
         ({"x1": 3}, "is taken"),
         ({"y": 3}, "is taken"),
+        ({"g": ["only"]}, "at least 2 level names"),
+        ({"g": ["low", "low"]}, "must be distinct"),
+        ({"g": {"low": 0.5, "high": 0.6}}, "summing to 1"),
+        ({"g": True}, "can't be a bool"),
     ],
 )
 def test_make_frame_invalid_categorical_raises(categorical: dict, message: str) -> None:
@@ -296,3 +300,57 @@ def test_correlation_none_keeps_random_structure() -> None:
         Gaussian(), n_correlated=3, correlation=None, rng=np.random.default_rng(154)
     )
     np.testing.assert_array_equal(a.X, b.X)
+
+
+@pytest.mark.parametrize(
+    "levels",
+    [
+        ["Plains", "Mountain", "Swamp", "Island", "Forest"],
+        {"Plains": 0.4, "Mountain": 0.3, "Swamp": 0.1, "Island": 0.1, "Forest": 0.1},
+    ],
+    ids=["names", "named probabilities"],
+)
+def test_make_frame_with_named_levels(levels: list[str] | dict[str, float]) -> None:
+    names = list(levels)
+    sim = make_frame(
+        Poisson(),
+        n_samples=2000,
+        n_uncorrelated=1,
+        categorical={"region": levels, "plan": ["Beginner", "Master"]},
+        rng=np.random.default_rng(154),
+    )
+    region = sim.data["region"]
+    assert list(region.cat.categories) == names
+    assert set(region) == set(names)
+    # The first level given is the reference, though it doesn't sort first.
+    expected = (
+        ["Intercept", "x1"]
+        + [f"C(region)[T.{name}]" for name in names[1:]]
+        + ["C(plan)[T.Master]"]
+    )
+    assert list(sim.coef.index) == expected
+    model = GLM(Poisson()).fit(sim.data, formula=sim.formula)
+    assert model.X_names == expected
+
+
+def test_make_frame_named_level_probabilities() -> None:
+    sim = make_frame(
+        Gaussian(),
+        n_samples=20_000,
+        n_uncorrelated=0,
+        categorical={"g": {"rare": 0.1, "common": 0.9}},
+        rng=np.random.default_rng(154),
+    )
+    assert (sim.data["g"] == "rare").mean() == pytest.approx(0.1, abs=0.01)
+
+
+def test_make_regression_accepts_named_levels() -> None:
+    data = make_regression(
+        Gaussian(),
+        n_samples=100,
+        n_uncorrelated=1,
+        categorical=[["low", "medium", "high"]],
+        rng=np.random.default_rng(154),
+    )
+    # An intercept, x1, and indicators for medium and high.
+    assert data.X.shape == (100, 4)
