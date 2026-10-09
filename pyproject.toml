@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "py-glm"
-version = "0.1.0"
+version = "0.2.0"
 description = "Fitting, inspecting, and evaluating generalized linear models."
 readme = "README.md"
 license = "BSD-3-Clause"
@@ -19,6 +19,11 @@ dependencies = [
     "pandas>=2.2.3",
     "scipy>=1.14.1",
 ]
+
+[project.optional-dependencies]
+# Plotting functions only need matplotlib for their axes; install it with
+# pip install "py-glm[plot]".
+plot = ["matplotlib>=3.8"]
 
 [project.urls]
 Repository = "https://github.com/madrury/py-glm"

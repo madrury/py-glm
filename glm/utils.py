@@ -3,7 +3,7 @@ from typing import Any
 import numpy as np
 import numpy.typing as npt
 
-from glm.types import Deviance, DesignMatrix, Offset, ResponseVector, SampleWeights
+from glm.types import Deviance, DesignMatrix, Offset, ResponseVector
 
 
 def is_commensurate(X: DesignMatrix, y: ResponseVector) -> bool:
@@ -42,9 +42,26 @@ def check_offset(y: ResponseVector, offset: Offset) -> None:
         raise ValueError("Offset array and y are not the same length.")
 
 
-def check_sample_weights(y: ResponseVector, sample_weights: SampleWeights) -> None:
+# Used by glm.glmnet, which is not yet annotated; GLM uses check_weights.
+def check_sample_weights(
+    y: ResponseVector, sample_weights: npt.NDArray[np.float64]
+) -> None:
     if not has_same_length(y, sample_weights):
         raise ValueError("Sample weights array and y are not the same length.")
+
+
+def check_weights(
+    name: str, y: ResponseVector, weights: npt.NDArray[np.float64] | None
+) -> npt.NDArray[np.float64]:
+    """Check one kind of weights, defaulting to ones."""
+    if weights is None:
+        return np.ones(y.shape[0])
+    if not has_same_length(y, weights):
+        raise ValueError(f"{name} and y are not the same length.")
+    check_no_missing_values(name, weights)
+    if np.any(weights < 0):
+        raise ValueError(f"{name} must be non-negative.")
+    return weights
 
 
 def has_converged(loss: Deviance, loss_prev: Deviance, tol: float) -> bool:

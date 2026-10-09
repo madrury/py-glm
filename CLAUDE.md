@@ -27,8 +27,25 @@
 
 - **Format with black.** All Python is black-formatted; don't hand-align
   continuation lines.
+- **Dataclasses for records.** Use a `dataclass` (frozen, where the record
+  shouldn't change) for simple records of named fields, rather than a
+  `NamedTuple`.
 - **Absolute imports only.** Import within the package as `from glm.utils import
   ...`, never with relative imports (`from .utils import ...`).
+
+## Output
+
+- **No significance stars.** Never mark p-values with stars or other
+  significance symbols, in any table, summary, or plot.
+
+## Plotting
+
+- **Axes in, axes out.** Plotting functions take a matplotlib `Axes` as their
+  first argument, wherever possible, and always return it. They never create
+  figures or axes, so the user keeps control of the layout.
+- **No runtime matplotlib import.** Because axes are passed in, the library
+  only needs matplotlib for type annotations: import `Axes` under
+  `typing.TYPE_CHECKING`.
 
 ## Checks
 

@@ -1987,13 +1987,18 @@ wheels = [
 
 [[package]]
 name = "py-glm"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "." }
 dependencies = [
     { name = "formulaic" },
     { name = "numpy" },
     { name = "pandas" },
     { name = "scipy" },
+]
+
+[package.optional-dependencies]
+plot = [
+    { name = "matplotlib" },
 ]
 
 [package.dev-dependencies]
@@ -2012,10 +2017,12 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "formulaic", specifier = ">=1.1" },
+    { name = "matplotlib", marker = "extra == 'plot'", specifier = ">=3.8" },
     { name = "numpy", specifier = ">=2.1" },
     { name = "pandas", specifier = ">=2.2.3" },
     { name = "scipy", specifier = ">=1.14.1" },
 ]
+provides-extras = ["plot"]
 
 [package.metadata.requires-dev]
 dev = [

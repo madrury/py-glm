@@ -52,18 +52,27 @@ def test_array_model_predict_requires_array(
         model.predict(pd.DataFrame(X))
 
 
-@pytest.mark.parametrize("argument", ["offset", "sample_weights"])
+@pytest.mark.parametrize(
+    "argument", ["offset", "frequency_weights", "precision_weights"]
+)
 def test_fit_with_missing_offset_or_weights_raises(
     data: tuple[np.ndarray, np.ndarray], argument: str
 ) -> None:
     X, y = data
-    offset, sample_weights = np.zeros(len(y)), np.ones(len(y))
-    if argument == "offset":
-        offset[3] = np.nan
-    else:
-        sample_weights[3] = np.nan
+    values = {
+        "offset": np.zeros(len(y)),
+        "frequency_weights": np.ones(len(y)),
+        "precision_weights": np.ones(len(y)),
+    }
+    values[argument][3] = np.nan
     with pytest.raises(ValueError, match=f"{argument} contains missing"):
-        GLM(Poisson()).fit(X, y, offset=offset, sample_weights=sample_weights)
+        GLM(Poisson()).fit(
+            X,
+            y,
+            offset=values["offset"],
+            frequency_weights=values["frequency_weights"],
+            precision_weights=values["precision_weights"],
+        )
 
 
 def test_predict_with_missing_offset_raises(

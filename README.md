@@ -14,6 +14,13 @@ GitHub:
 pip install git+https://github.com/madrury/py-glm.git
 ```
 
+The plotting functions need `matplotlib`, which you can install along with
+`py-glm` as the `plot` extra:
+
+```
+pip install "py-glm[plot] @ git+https://github.com/madrury/py-glm.git"
+```
+
 ## Fitting Models
 
 The examples below use this simulated data:
@@ -67,7 +74,7 @@ ones), and `fit` raises an error if it isn't. To fit a model without an intercep
 pass `validate_intercept=False`. Model formulas, below, include an intercept
 automatically.
 
-Offsets and sample weights are supported when fitting:
+Offsets and weights are supported when fitting:
 
 ```python
 exposure = rng.uniform(1, 10, N)
@@ -75,13 +82,37 @@ exposure = rng.uniform(1, 10, N)
 y_count = rng.poisson(exposure * np.exp(0.5 + 0.3 * df["Moshi"]))
 poisson_model.fit(X, y_count, offset=np.log(exposure))
 
-sample_weights = rng.uniform(0, 2, N)
-weighted_model = GLM(family=Bernoulli()).fit(X, y, sample_weights=sample_weights)
+counts = rng.integers(1, 5, N).astype(np.float64)
+weighted_model = GLM(family=Bernoulli()).fit(X, y, frequency_weights=counts)
 ```
+
+**Weights:** There are two kinds of weights, and they mean different things.
+
+* `frequency_weights` say how many identical observations each row stands
+  for, as when repeated records are stored once with a count. Fitting with them
+  is equivalent to fitting to the expanded data.
+* `precision_weights` say how much more precise each row's response is than a
+  single observation's: its variance is divided by the weight. They're the
+  natural weights for a response that's an average, or a proportion. For
+  example, a binomial response given as proportions of successes, weighted by
+  their numbers of trials:
+
+```python
+trials = rng.integers(5, 20, N).astype(np.float64)
+successes = rng.binomial(trials.astype(int), 1 / (1 + np.exp(-(X @ [0.5, -1.0, 0.5]))))
+proportions_model = GLM(family=Bernoulli()).fit(
+    X, successes / trials, precision_weights=trials
+)
+```
+
+Both give the same coefficients, but only frequency weights add observations,
+so for families that estimate a dispersion, they give different dispersions and
+standard errors. (R's `glm` calls precision weights *prior weights*.) The two
+kinds can be combined.
 
 **Missing values:** `fit` and `predict` raise an error if the data contain
 missing values, rather than silently dropping rows, which would misalign the
-data with any offsets, sample weights, or predictions. Dealing with missing
+data with any offsets, weights, or predictions. Dealing with missing
 values is thus the user's responsibility: drop or impute missing values before
 fitting models.
 
@@ -123,7 +154,7 @@ will need to threshold the probability returned by `predict` manually.
 ## Inference
 
 Once the model is fit, parameter estimates, parameter covariance estimates, and
-p-values from a standard z-test are available:
+p-values are available:
 
 ```python
 logistic_model.coef_
@@ -132,7 +163,20 @@ logistic_model.coef_standard_error_
 logistic_model.p_values_
 ```
 
-To get a quick summary, use the `summary` method:
+`summary_frame` collects them into a data frame, one row per coefficient, with
+the estimate, its standard error, the test statistic for the hypothesis that the
+coefficient is zero, its p-value, and a confidence interval:
+
+```python
+formula_model.summary_frame(level=0.95)
+```
+
+The test statistic is compared with Student's t distribution, with `n - p`
+degrees of freedom, for families that estimate a dispersion parameter (it's
+labelled `t`), and with the standard normal distribution for families that
+don't (labelled `z`), following the convention of R's `summary.glm`.
+
+To print a quick summary, use the `summary` method:
 
 ```python
 formula_model.summary()
@@ -140,12 +184,10 @@ formula_model.summary()
 
 ```
 Bernoulli GLM Model Summary.
-================================================
-Name          Parameter Estimate  Standard Error
-------------------------------------------------
-Intercept                   0.98            0.09
-Moshi                      -2.06            0.16
-SwimSwim                    0.99            0.14
+          estimate std error       z p-value lower 95% upper 95%
+Intercept    0.985     0.085  11.539  <0.001     0.817     1.152
+Moshi       -2.063     0.160 -12.888  <0.001    -2.377    -1.750
+SwimSwim     0.993     0.139   7.152  <0.001     0.721     1.265
 ```
 
 ## Simulation
@@ -201,7 +243,80 @@ ridge_model.fit(X, y)
 ```
 
 The penalty is `alpha` times the sum of the squared coefficients, excluding the
-intercept. P-values are not available for regularized models.
+intercept, if the model has one. P-values are not available for regularized
+models.
+
+**Standardization:** A ridge penalty depends on the units of the predictors:
+measuring a predictor in kilometres rather than metres makes its coefficient
+1000 times larger, and so penalizes it far more. So by default, penalized
+models standardize the design matrix's continuous columns to unit standard
+deviation before fitting, and report coefficients on the original scale. The
+`standardize` argument controls this:
+
+* `"continuous"` (the default) leaves indicator columns, those of zeros and
+  ones, unscaled: they are already on a natural scale, and scaling them would
+  shrink the coefficients of rare categories *less* than common ones.
+* `"all"` scales indicator columns too, as `glmnet` does.
+* `"none"` fits the columns as given.
+
+```python
+glmnet_style_model = GLM(family=Bernoulli(), alpha=1.0, standardize="all")
+```
+
+**Categorical variables:** Penalized formula models encode categorical
+variables with a column for every level, e.g. `C(g)[a]`, `C(g)[b]`, and
+`C(g)[c]`, rather than dropping a reference level, so that the penalty treats
+every level alike, and the fit doesn't depend on which level would have been
+the reference.
+
+**Note:** Before version 0.2.0, ridge fits in `py-glm` ignored `alpha`, and
+every penalized model was fit as though `alpha` were 1. Results from earlier
+versions should be recomputed.
+
+## Ridge Paths
+
+`RidgePath` fits a model at each of a grid of penalty strengths, from the
+largest to the smallest, starting each fit from the previous one's
+coefficients:
+
+```python
+from glm.ridge import RidgePath
+
+df["Group"] = rng.choice(["a", "b", "c"], N)
+path = RidgePath(family=Bernoulli())
+path.fit(df, formula="y ~ Moshi + SwimSwim + C(Group)")
+
+path.alphas_  # 100 penalty strengths, in decreasing order.
+path.models_  # A fit GLM for each.
+path.coefficient_table()  # One row per penalty strength, indexed by alpha.
+path.df_  # The effective degrees of freedom of each model.
+```
+
+Pass `alphas` to choose the penalty strengths yourself. By default, the grid
+spans the eigenvalues of the model's (standardized) information matrix: ridge
+shrinks a fit along each eigen-direction by the factor `d / (d + alpha)`, for
+that direction's eigenvalue `d`, so the whole path happens between them (see
+Hastie, Tibshirani, and Friedman, *The Elements of Statistical Learning*,
+section 3.4.1).
+
+`plot_coefficient_paths` plots the path of every coefficient, grouped by model
+term, so that every level of a categorical variable shares a color. Select
+terms with a formula, plot against the effective degrees of freedom rather
+than `alpha` with `x="df"`, and show coefficients on their original scale,
+rather than standardized, with `scale="original"`:
+
+```python
+import matplotlib.pyplot as plt
+from glm.plotting import plot_coefficient_paths
+
+fig, axes = plt.subplots(1, 2, figsize=(12, 4))
+plot_coefficient_paths(axes[0], path)
+plot_coefficient_paths(axes[1], path, "Moshi + C(Group)", x="df")
+```
+
+Like all of `py-glm`'s plotting functions, `plot_coefficient_paths` draws on
+the axes you pass it, and returns them, so you stay in control of the figure's
+layout.
 
 ## Type Annotations
 
