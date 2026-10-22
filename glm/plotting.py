@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, get_args
 import formulaic
 import numpy as np
 
-from glm.ridge import RidgePath
+from glm.ridge import RidgePath, RidgePathCV
 from glm.types import CoefficientScale, PathAxis, TermColumns
 
 if TYPE_CHECKING:
@@ -120,6 +120,77 @@ def plot_coefficient_paths(
     else:
         ax.set_xlabel("Effective degrees of freedom")
     ax.set_ylabel(f"{scale.capitalize()} coefficient")
+    ax.legend()
+    return ax
+
+
+def plot_cv_deviance(
+    ax: "Axes",
+    cv: RidgePathCV,
+    *,
+    x: PathAxis = "log_alpha",
+) -> "Axes":
+    """Plot the cross-validated deviance as the penalty varies.
+
+    The held-out deviance per unit weight, averaged over the folds, is drawn
+    with a band of one standard error either side. Dashed vertical lines mark
+    the penalty with the smallest deviance, alpha_min_, and the largest within
+    one standard error of it, alpha_1se_.
+
+    Parameters
+    ----------
+
+    ax: matplotlib Axes
+        The axes to draw on.
+
+    cv: RidgePathCV
+        A fit cross-validation.
+
+    x: "log_alpha" or "df"
+        The horizontal axis: the penalty strength, on a log scale, or the
+        effective degrees of freedom of the full data's models (see
+        RidgePath.df_).
+
+    Returns
+    -------
+
+    ax: matplotlib Axes
+        The axes drawn on.
+    """
+    if x not in PATH_AXES:
+        raise ValueError(f"x must be one of {PATH_AXES}, got {x!r}.")
+    if (
+        cv.alphas_ is None
+        or cv.path_ is None
+        or cv.path_.df_ is None
+        or cv.cv_deviance_ is None
+        or cv.cv_standard_error_ is None
+    ):
+        raise ValueError("The cross-validation has not been fit.")
+
+    horizontal = cv.alphas_ if x == "log_alpha" else cv.path_.df_
+    ax.plot(horizontal, cv.cv_deviance_, color="C0", marker=".")
+    ax.fill_between(
+        horizontal,
+        cv.cv_deviance_ - cv.cv_standard_error_,
+        cv.cv_deviance_ + cv.cv_standard_error_,
+        color="C0",
+        alpha=0.2,
+    )
+    for alpha, label, linestyle in [
+        (cv.alpha_min_, "Minimum", "--"),
+        (cv.alpha_1se_, "One standard error", ":"),
+    ]:
+        # Indexing an array gives a numpy scalar, which the stubs type as an
+        # array; axvline wants a float.
+        position = float(horizontal[np.flatnonzero(cv.alphas_ == alpha)[0]])
+        ax.axvline(position, color="grey", linestyle=linestyle, label=label)
+    if x == "log_alpha":
+        ax.set_xscale("log")
+        ax.set_xlabel(r"$\alpha$")
+    else:
+        ax.set_xlabel("Effective degrees of freedom")
+    ax.set_ylabel("Held-out deviance per unit weight")
     ax.legend()
     return ax
 

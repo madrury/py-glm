@@ -11,8 +11,8 @@ import pytest
 from matplotlib.axes import Axes
 
 from glm.families import Poisson
-from glm.plotting import plot_coefficient_paths
-from glm.ridge import RidgePath
+from glm.plotting import plot_coefficient_paths, plot_cv_deviance
+from glm.ridge import RidgePath, RidgePathCV
 
 N = 500
 N_ALPHAS = 20
@@ -183,3 +183,47 @@ def test_select_terms_with_the_models_formula(path: RidgePath, ax: Axes) -> None
     assert path.models_ is not None and path.models_[0].formula is not None
     plot_coefficient_paths(ax, path, path.models_[0].formula)
     assert legend_labels(ax) == ["x1", "x2", "C(g)", "x1:C(g)"]
+
+
+@pytest.fixture
+def cv(df: pd.DataFrame) -> RidgePathCV:
+    return RidgePathCV(Poisson(), n_alphas=N_ALPHAS, n_folds=5).fit(
+        df, formula="y ~ x1 + x2 + C(g)", rng=np.random.default_rng(154)
+    )
+
+
+def test_cv_returns_axes_and_creates_no_figures(cv: RidgePathCV, ax: Axes) -> None:
+    figures = plt.get_fignums()
+    assert plot_cv_deviance(ax, cv) is ax
+    assert plt.get_fignums() == figures
+
+
+def test_cv_plots_mean_deviance_and_chosen_alphas(cv: RidgePathCV, ax: Axes) -> None:
+    plot_cv_deviance(ax, cv)
+    curve = path_lines(ax)
+    assert len(curve) == 1
+    np.testing.assert_array_equal(curve[0].get_xdata(), cv.alphas_)
+    np.testing.assert_array_equal(curve[0].get_ydata(), cv.cv_deviance_)
+    assert ax.get_xscale() == "log"
+    # A vertical line at each chosen alpha.
+    verticals = {
+        line.get_xdata()[0] for line in ax.get_lines() if len(line.get_xdata()) == 2
+    }
+    assert verticals == {cv.alpha_min_, cv.alpha_1se_}
+
+
+def test_cv_plots_against_degrees_of_freedom(cv: RidgePathCV, ax: Axes) -> None:
+    plot_cv_deviance(ax, cv, x="df")
+    assert cv.path_ is not None and cv.path_.df_ is not None
+    np.testing.assert_array_equal(path_lines(ax)[0].get_xdata(), cv.path_.df_)
+    assert ax.get_xscale() == "linear"
+
+
+def test_cv_invalid_x_raises(cv: RidgePathCV, ax: Axes) -> None:
+    with pytest.raises(ValueError, match="x must be one of"):
+        plot_cv_deviance(ax, cv, x="alpha")  # type: ignore[arg-type]
+
+
+def test_unfit_cv_raises(ax: Axes) -> None:
+    with pytest.raises(ValueError, match="has not been fit"):
+        plot_cv_deviance(ax, RidgePathCV(Poisson()))
