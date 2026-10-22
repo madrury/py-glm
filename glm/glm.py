@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 
 from glm.families import ExponentialFamily, TestDistribution
-from glm.standardize import Standardizer, check_standardization
+from glm.standardize import Standardizer
 from glm.types import (
     CoefficientMask,
     CoefficientSummary,
@@ -40,6 +40,7 @@ from glm.utils import (
     check_intercept,
     check_no_missing_values,
     check_offset,
+    check_standardization,
     check_weights,
     has_converged,
     has_intercept_column,

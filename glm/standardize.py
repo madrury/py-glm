@@ -8,7 +8,7 @@ Standardizer encapsulates the transformation, so that the fitting code works on
 the standardized scale while everything user facing stays on the original scale.
 """
 
-from typing import Self, get_args
+from typing import Self
 
 import numpy as np
 
@@ -20,16 +20,7 @@ from glm.types import (
     FrequencyWeights,
     Standardization,
 )
-from glm.utils import has_intercept_column
-
-STANDARDIZATIONS: tuple[str, ...] = get_args(Standardization.__value__)
-
-
-def check_standardization(standardize: object) -> None:
-    if standardize not in STANDARDIZATIONS:
-        raise ValueError(
-            f"standardize must be one of {STANDARDIZATIONS}, got {standardize!r}."
-        )
+from glm.utils import check_standardization, has_intercept_column
 
 
 class Standardizer:

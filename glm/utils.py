@@ -1,9 +1,12 @@
-from typing import Any
+from collections.abc import Sequence
+from typing import Any, get_args
 
 import numpy as np
 import numpy.typing as npt
 
-from glm.types import Deviance, DesignMatrix, Offset, ResponseVector
+from glm.types import Deviance, DesignMatrix, Offset, ResponseVector, Standardization
+
+STANDARDIZATIONS: tuple[str, ...] = get_args(Standardization.__value__)
 
 
 def is_commensurate(X: DesignMatrix, y: ResponseVector) -> bool:
@@ -62,6 +65,31 @@ def check_weights(
     if np.any(weights < 0):
         raise ValueError(f"{name} must be non-negative.")
     return weights
+
+
+def check_standardization(standardize: object) -> None:
+    if standardize not in STANDARDIZATIONS:
+        raise ValueError(
+            f"standardize must be one of {STANDARDIZATIONS}, got {standardize!r}."
+        )
+
+
+def check_integer_at_least(name: str, value: object, minimum: int) -> None:
+    # bool is a subclass of int, but True isn't a count.
+    if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
+        raise ValueError(
+            f"{name} must be an integer of at least {minimum}, got {value!r}."
+        )
+
+
+def check_alphas(alphas: Sequence[float] | None, n_alphas: int) -> None:
+    """Raise unless the supplied alphas, or else the size of the default grid,
+    are valid."""
+    if alphas is not None:
+        if len(alphas) == 0 or not all(alpha > 0 for alpha in alphas):
+            raise ValueError("alphas must be a non-empty sequence of positives.")
+    else:
+        check_integer_at_least("n_alphas", n_alphas, 2)
 
 
 def has_converged(loss: Deviance, loss_prev: Deviance, tol: float) -> bool:

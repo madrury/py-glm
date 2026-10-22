@@ -142,6 +142,15 @@ def test_array_path_term_columns(arrays: tuple[np.ndarray, np.ndarray]) -> None:
     assert path.term_columns_ == {"a": ["a"], "b": ["b"]}
 
 
+def test_model_at(arrays: tuple[np.ndarray, np.ndarray]) -> None:
+    path = RidgePath(Poisson(), alphas=[1.0, 10.0]).fit(*arrays)
+    assert path.models_ is not None
+    assert path.model_at(10.0) is path.models_[0]
+    assert path.model_at(1.0) is path.models_[1]
+    with pytest.raises(ValueError, match="not on the path's grid"):
+        path.model_at(5.0)
+
+
 def test_unfit_path_raises() -> None:
     with pytest.raises(ValueError, match="has not been fit"):
         RidgePath(Poisson()).coefficient_table()

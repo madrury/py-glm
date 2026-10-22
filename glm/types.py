@@ -69,6 +69,24 @@ type EffectiveDegreesOfFreedom = npt.NDArray[np.float64]
 """The effective degrees of freedom of each model along a regularization
 path, shape (n_alphas,)."""
 
+type FoldFrequencyWeights = npt.NDArray[np.float64]
+"""How many of each row's observations each cross-validation fold holds out,
+shape (n_folds, n): each column sums to the row's frequency weight, so a row
+standing for several observations can be split across folds."""
+
+type FoldWeights = npt.NDArray[np.float64]
+"""The total observation weight held out in each cross-validation fold, shape
+(n_folds,)."""
+
+type FoldDeviances = npt.NDArray[np.float64]
+"""The held-out deviance per unit of observation weight, for each
+cross-validation fold and penalty strength, shape (n_folds, n_alphas)."""
+
+type CVDeviances = npt.NDArray[np.float64]
+"""A cross-validated summary of the held-out deviance per unit of observation
+weight, such as its mean or standard error over the folds, at each penalty
+strength, shape (n_alphas,)."""
+
 type PathAxis = Literal["log_alpha", "df"]
 """The horizontal axis of a regularization path plot: the penalty strength,
 on a log scale, or the effective degrees of freedom."""
