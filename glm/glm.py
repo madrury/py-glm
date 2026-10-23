@@ -37,6 +37,7 @@ from glm.types import (
 )
 from glm.utils import (
     check_commensurate,
+    check_full_rank,
     check_intercept,
     check_no_missing_values,
     check_offset,
@@ -455,6 +456,14 @@ class GLM:
         # Each row's weight in the fit: the weight on its contribution to the
         # deviance.
         observation_weights: ObservationWeights = frequency_weights * precision_weights
+        # A ridge penalty makes the fit well defined even when the matrix is
+        # rank deficient.
+        if not self._is_regularized():
+            # Zero weight rows do not influence the fit, so don't need to be
+            # accounted for in the rank.
+            check_full_rank(
+                X[observation_weights > 0], self.X_names or default_X_names(X)
+            )
         penalized_coefficients = self._penalized_coefficients(X)
 
         family = self.family

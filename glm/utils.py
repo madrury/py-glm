@@ -67,6 +67,50 @@ def check_weights(
     return weights
 
 
+def check_full_rank(X: DesignMatrix, X_names: list[str]) -> None:
+    """Raise if the columns of X are linearly dependent, so that an
+    unpenalized model's coefficients aren't uniquely determined.
+
+    numpy's solvers don't catch this: they raise only on an exactly zero pivot,
+    and rounding error leaves a rank deficient information matrix with tiny,
+    non-zero ones. The fit then converges, with coefficients that are arbitrary
+    along the dependent directions, and nan standard errors.
+
+    Pass only the rows with positive weight. The information matrix X'WX, with
+    W the diagonal working weights, has the rank of W^(1/2) X, and on rows with
+    positive weight W^(1/2) is invertible, so it has the rank of X. Checking X,
+    rather than X'WX, also keeps rank deficiency, where the coefficients aren't
+    determined, apart from tiny working weights, which leave them determined
+    but poorly conditioned.
+    """
+    n, p = X.shape
+    if n < p:
+        raise ValueError(
+            f"The design matrix is rank deficient: it has more coefficients than "
+            f"observations ({p} > {n}), so the coefficients aren't uniquely "
+            f"determined. Fit with a ridge penalty (alpha > 0), or use fewer "
+            f"columns."
+        )
+    rank = np.linalg.matrix_rank(X)
+    if rank == p:
+        return
+    # The right singular vectors for the vanishing singular values span the
+    # null space, so the columns with a weight in any of them are the dependent
+    # ones. matrix_rank counts the singular values above its tolerance, which
+    # come first, as svd sorts them in decreasing order.
+    _, _, Vt = np.linalg.svd(X, full_matrices=False)
+    null_basis = Vt[rank:]
+    dependent = np.any(np.abs(null_basis) > 1e-8, axis=0)
+    names = [name for name, d in zip(X_names, dependent) if d]
+    raise ValueError(
+        f"The design matrix is rank deficient: the columns {names} are linearly "
+        f"dependent, so their coefficients aren't uniquely determined. Remove "
+        f"the redundancy, e.g. by dropping a reference level of a categorical "
+        f"variable, or centering a spline basis with constraints='center'; or "
+        f"fit with a ridge penalty (alpha > 0)."
+    )
+
+
 def check_standardization(standardize: object) -> None:
     if standardize not in STANDARDIZATIONS:
         raise ValueError(

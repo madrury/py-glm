@@ -1,4 +1,7 @@
+from collections.abc import Callable
+
 import numpy as np
+import pandas as pd
 import pytest
 
 from glm.families import Bernoulli, ExponentialFamily, Gamma, Gaussian, Poisson
@@ -83,3 +86,82 @@ def test_perfect_fit_converges(family: ExponentialFamily) -> None:
     model = GLM(family).fit(X, family.inv_link(X @ β))
     assert model.coef_ is not None
     np.testing.assert_allclose(model.coef_, β)
+
+
+RANK_DEFICIENT_DESIGNS: dict[str, Callable[[np.ndarray], np.ndarray]] = {
+    "duplicated column": lambda X: np.column_stack([X, X[:, 1]]),
+    "linear combination": lambda X: np.column_stack([X, 2 * X[:, 1] - 3 * X[:, 0]]),
+    "column of zeros": lambda X: np.column_stack([X, np.zeros(N)]),
+    "constant column": lambda X: np.column_stack([X, np.full(N, 5.0)]),
+}
+
+
+@pytest.mark.parametrize(
+    "make_design", RANK_DEFICIENT_DESIGNS.values(), ids=list(RANK_DEFICIENT_DESIGNS)
+)
+def test_rank_deficient_design_raises(
+    X: np.ndarray, make_design: Callable[[np.ndarray], np.ndarray]
+) -> None:
+    rng = np.random.default_rng(154)
+    y = rng.poisson(np.exp(0.5 + 0.3 * X[:, 1])).astype(np.float64)
+    with pytest.raises(ValueError, match="rank deficient"):
+        GLM(Poisson()).fit(make_design(X), y)
+
+
+def test_rank_deficient_design_names_the_dependent_columns(X: np.ndarray) -> None:
+    # A different seed from the fixture's, so X2 is independent of X1.
+    rng = np.random.default_rng(155)
+    design = np.column_stack([X, rng.normal(size=N), X[:, 1]])
+    y = rng.poisson(np.exp(0.5 + 0.3 * X[:, 1])).astype(np.float64)
+    with pytest.raises(ValueError, match=r"\['X1', 'X3'\]"):
+        GLM(Poisson()).fit(design, y)
+
+
+def test_more_coefficients_than_observations_raises() -> None:
+    rng = np.random.default_rng(154)
+    X = np.column_stack([np.ones(5), rng.normal(size=(5, 6))])
+    with pytest.raises(ValueError, match="more coefficients than observations"):
+        GLM(Gaussian()).fit(X, rng.normal(size=5))
+
+
+def test_spline_basis_duplicating_the_intercept_raises() -> None:
+    # A cs() basis sums to one at every x, duplicating the intercept. This was
+    # only rank deficient up to rounding error, so solving the singular system
+    # never raised, and it fit silently, with nan standard errors.
+    rng = np.random.default_rng(3)
+    df = pd.DataFrame({"x": rng.uniform(0, 12, size=1000)})
+    df["y"] = rng.poisson(0.5 + df["x"] * (np.sin(1.25 * df["x"]) + 1))
+    with pytest.raises(ValueError, match="rank deficient"):
+        GLM(Poisson()).fit(df, formula="y ~ cs(x, df=10)")
+    # Centering the basis removes the redundancy.
+    model = GLM(Poisson()).fit(df, formula="y ~ cs(x, df=10, constraints='center')")
+    assert np.all(np.isfinite(model.coef_standard_error_))
+
+
+@pytest.mark.parametrize(
+    "make_design", RANK_DEFICIENT_DESIGNS.values(), ids=list(RANK_DEFICIENT_DESIGNS)
+)
+def test_penalized_fit_accepts_rank_deficient_design(
+    X: np.ndarray, make_design: Callable[[np.ndarray], np.ndarray]
+) -> None:
+    # The penalty makes the fit well defined; every-level encoding of
+    # categorical variables relies on this.
+    rng = np.random.default_rng(154)
+    y = rng.poisson(np.exp(0.5 + 0.3 * X[:, 1])).astype(np.float64)
+    model = GLM(Poisson(), alpha=1.0).fit(make_design(X), y)
+    assert model.coef_ is not None and np.all(np.isfinite(model.coef_))
+
+
+def test_rank_ignores_rows_with_zero_weight(X: np.ndarray) -> None:
+    # This column is non-zero only on rows with zero weight, so the rows that
+    # count leave its coefficient undetermined.
+    rng = np.random.default_rng(154)
+    y = rng.poisson(np.exp(0.5 + 0.3 * X[:, 1])).astype(np.float64)
+    only_on_zero_weight = np.zeros(N)
+    only_on_zero_weight[:10] = 1.0
+    weights = np.ones(N)
+    weights[:10] = 0.0
+    with pytest.raises(ValueError, match="rank deficient"):
+        GLM(Poisson()).fit(
+            np.column_stack([X, only_on_zero_weight]), y, frequency_weights=weights
+        )
