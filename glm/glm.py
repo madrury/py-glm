@@ -468,22 +468,7 @@ class GLM:
 
         family = self.family
         if warm_start is None:
-            # Start from the intercept-only model: its estimate of the mean is
-            # the weighted mean response, so its intercept is that mean on the
-            # linear predictor scale, net of the average offset.
-            ȳ = np.average(y, weights=observation_weights)
-            # The intercept-only model fits the same mean, ȳ, for every
-            # observation, so its linear predictor is constant.
-            μ_null = np.full(X.shape[0], ȳ)
-            with np.errstate(divide="ignore"):
-                # We just need a scalar.
-                intercept = family.link(μ_null)[0]
-            # E.g. an all-zero Poisson or binary response: the intercept-only
-            # estimate is infinite, so no finite estimate can exist.
-            if not np.isfinite(intercept):
-                raise ValueError(NON_FINITE_ESTIMATES_MESSAGE)
-            warm_start = np.zeros(X.shape[1])
-            warm_start[0] = intercept - np.average(offset, weights=observation_weights)
+            warm_start = self._cold_start(X, y, offset, observation_weights)
         # Penalized fits work on standardized columns, so that the penalty does
         # not depend on the predictors' units. Unpenalized fits are unchanged
         # by standardizing, so skip it for them.
@@ -803,6 +788,58 @@ class GLM:
 
     def _is_fit(self) -> bool:
         return self.coef_ is not None
+
+    def _cold_start(
+        self,
+        X: DesignMatrix,
+        y: ResponseVector,
+        offset: Offset,
+        observation_weights: ObservationWeights,
+    ) -> CoefficientVector:
+        """Starting coefficients when none are supplied.
+
+        With an intercept, start from the intercept-only model: its estimate of
+        the mean is the weighted mean response, so its intercept is that mean
+        on the linear predictor scale, net of the average offset. Without one,
+        start from all zero coefficients, where the linear predictor is the
+        offset; putting the intercept's value on column 0 would multiply it by
+        a predictor, which can overflow the inverse link.
+
+        Parameters
+        ----------
+        X: array, shape (n_samples, n_features)
+            The design matrix.
+
+        y: array, shape (n_samples, )
+            The response.
+
+        offset: array, shape (n_samples, )
+            The offset on the linear predictor.
+
+        observation_weights: array, shape (n_samples, )
+            Each row's weight on its contribution to the deviance.
+
+        Returns
+        -------
+        β: array, shape (n_features, )
+            The starting coefficients.
+        """
+        β: CoefficientVector = np.zeros(X.shape[1])
+        if not has_intercept_column(X):
+            return β
+        ȳ = np.average(y, weights=observation_weights)
+        # The intercept-only model fits the same mean, ȳ, for every
+        # observation, so its linear predictor is constant.
+        μ_null = np.full(X.shape[0], ȳ)
+        with np.errstate(divide="ignore"):
+            # We just need a scalar, family.link transforms arrays into arrays.
+            intercept = self.family.link(μ_null)[0]
+        # E.g. an all-zero Poisson or binary response: the intercept-only
+        # estimate is infinite, so no finite estimate can exist.
+        if not np.isfinite(intercept):
+            raise ValueError(NON_FINITE_ESTIMATES_MESSAGE)
+        β[0] = intercept - np.average(offset, weights=observation_weights)
+        return β
 
     def _is_regularized(self) -> bool:
         return self.alpha > 0.0

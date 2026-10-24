@@ -165,3 +165,28 @@ def test_rank_ignores_rows_with_zero_weight(X: np.ndarray) -> None:
         GLM(Poisson()).fit(
             np.column_stack([X, only_on_zero_weight]), y, frequency_weights=weights
         )
+
+
+@pytest.mark.parametrize(
+    "family, draw",
+    [
+        (Poisson(), lambda rng, η: rng.poisson(np.exp(η))),
+        (Bernoulli(), lambda rng, η: rng.binomial(1, 1 / (1 + np.exp(-η)))),
+        (Gamma(), lambda rng, η: rng.gamma(2.0, np.exp(η) / 2.0)),
+    ],
+)
+def test_cold_start_without_intercept_handles_large_predictors(
+    family: ExponentialFamily,
+    draw: Callable[[np.random.Generator, np.ndarray], np.ndarray],
+) -> None:
+    # Without an intercept, column 0 is a predictor. Starting its coefficient
+    # at the intercept-only estimate, about 0.5 here, would put the starting
+    # linear predictor near 0.5 * 1500 and overflow the inverse link.
+    rng = np.random.default_rng(154)
+    n = 1000
+    X = np.column_stack([rng.normal(1500.0, 1.0, size=n), rng.normal(size=n)])
+    y = draw(rng, 0.5 + 0.3 * X[:, 1])
+    model = GLM(family).fit(X, y, validate_intercept=False)
+    zero_start = GLM(family).fit(X, y, validate_intercept=False, warm_start=np.zeros(2))
+    assert model.coef_ is not None and zero_start.coef_ is not None
+    np.testing.assert_allclose(model.coef_, zero_start.coef_)
