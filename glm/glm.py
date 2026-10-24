@@ -578,18 +578,7 @@ class GLM:
             raise ValueError(
                 "Model is not fit, and cannot be used to make predictions."
             )
-        if self.X_spec is not None:
-            if not isinstance(X, pd.DataFrame):
-                raise TypeError(
-                    f"X must be a DataFrame for a model fit with a "
-                    f"formula, got a {type(X)}"
-                )
-            X = self._make_rhs_matrix(X)
-        elif not isinstance(X, np.ndarray):
-            raise TypeError(
-                f"X must be a numpy array for a model fit without a "
-                f"formula, got a {type(X)}"
-            )
+        X = self.design_matrix(X)
         check_no_missing_values("X", X)
         η = X @ self.coef_
         if offset is not None:
@@ -633,6 +622,78 @@ class GLM:
         return self.family.deviance(
             y, self.predict(X, offset=offset), observation_weights
         )
+
+    def design_matrix(self, X: DesignMatrix | DesignFrame) -> DesignMatrix:
+        """Return the design matrix a fit model uses for the given data.
+
+        For a model fit with a formula, the data frame is encoded with the
+        formula's specs learned when fitting, so that categorical levels and
+        stateful transforms such as center(x) are encoded as they were in
+        training. For a model fit without a formula, the data is already a
+        design matrix, and is returned as it is.
+
+        Parameters
+        ----------
+        X: array, shape (n_samples, n_features) or pd.DataFrame
+            Data, a DataFrame for a model fit with a formula, and a numpy array
+            for a model fit without one.
+
+        Returns
+        -------
+        design_matrix: array, shape (n_samples, n_coefficients)
+            The design matrix.
+        """
+        if not self._is_fit():
+            raise ValueError("Model is not fit, and cannot encode data.")
+        if self.X_spec is not None:
+            if not isinstance(X, pd.DataFrame):
+                raise self._X_type_error(X)
+            return self._make_rhs_matrix(X)
+        if not isinstance(X, np.ndarray):
+            raise self._X_type_error(X)
+        return X
+
+    def response_vector(
+        self, X: DesignMatrix | DesignFrame, y: ResponseVector | None = None
+    ) -> ResponseVector:
+        """Return the response a fit model uses for the given data.
+
+        For a model fit with a formula, the response is taken from the data
+        frame by the formula's left hand side, so y must not be supplied. For
+        a model fit without a formula, y is the response, and is returned as
+        it is.
+
+        Parameters
+        ----------
+        X: array, shape (n_samples, n_features) or pd.DataFrame
+            Data, a DataFrame for a model fit with a formula, and a numpy array
+            for a model fit without one.
+
+        y: array, shape (n_samples, )
+            The response, for a model fit without a formula only.
+
+        Returns
+        -------
+        response: array, shape (n_samples, )
+            The response vector.
+        """
+        if not self._is_fit():
+            raise ValueError("Model is not fit, and cannot encode data.")
+        if self.X_spec is not None:
+            if y is not None:
+                raise ValueError(
+                    "y must not be supplied for a model fit with a formula, as "
+                    "the response is taken from the formula."
+                )
+            if not isinstance(X, pd.DataFrame):
+                raise self._X_type_error(X)
+            return self._make_lhs_vector(X)
+        if not isinstance(y, np.ndarray):
+            raise TypeError(
+                f"y must be a numpy array for a model fit without a formula, "
+                f"got a {type(y)}"
+            )
+        return y
 
     @property
     def dispersion_(self) -> float:
@@ -837,6 +898,17 @@ class GLM:
                 self.X_spec.get_model_matrix(X, output="numpy", na_action="raise")
             )
         return design_matrix
+
+    def _X_type_error(self, X: object) -> TypeError:
+        if self.X_spec is not None:
+            return TypeError(
+                f"X must be a DataFrame for a model fit with a formula, "
+                f"got a {type(X)}"
+            )
+        return TypeError(
+            f"X must be a numpy array for a model fit without a formula, "
+            f"got a {type(X)}"
+        )
 
     def _make_lhs_vector(self, X: DesignFrame) -> ResponseVector:
         if self.y_spec is None:

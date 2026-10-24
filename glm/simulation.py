@@ -199,7 +199,7 @@ class Simulation:
                 "simulate them, pass their numbers of trials as precision_weights, "
                 "both to GLM.fit and here."
             )
-        design = self._design_matrix(X)
+        design = self.glm.design_matrix(X)
         simulations = self.sample(
             X, n_sim, offset=offset, precision_weights=precision_weights
         )
@@ -284,25 +284,8 @@ class Simulation:
         # drop a rare category's column, or change the reference level or a
         # stateful transform such as center(x), so that replicates would
         # estimate different quantities.
-        if self.glm.X_spec is not None:
-            if not isinstance(X, pd.DataFrame):
-                raise self._X_type_error(X)
-            if y is not None:
-                raise ValueError(
-                    "y must not be supplied for a model fit with a formula, as "
-                    "the response is taken from the formula."
-                )
-            design = self.glm._make_rhs_matrix(X)
-            response = self.glm._make_lhs_vector(X)
-        else:
-            if not isinstance(X, np.ndarray):
-                raise self._X_type_error(X)
-            if not isinstance(y, np.ndarray):
-                raise TypeError(
-                    f"y must be a numpy array for a model fit without a formula, "
-                    f"got a {type(y)}"
-                )
-            design, response = X, y
+        design = self.glm.design_matrix(X)
+        response = self.glm.response_vector(X, y)
         frequency_weights = check_weights(
             "frequency_weights", response, frequency_weights
         )
@@ -393,27 +376,6 @@ class Simulation:
         )
         model._copy_formula(self.glm)
         return model
-
-    def _design_matrix(self, X: DesignMatrix | DesignFrame) -> DesignMatrix:
-        """Check the type of X, and encode it as the model's design matrix."""
-        if self.glm.X_spec is not None:
-            if not isinstance(X, pd.DataFrame):
-                raise self._X_type_error(X)
-            return self.glm._make_rhs_matrix(X)
-        if not isinstance(X, np.ndarray):
-            raise self._X_type_error(X)
-        return X
-
-    def _X_type_error(self, X: object) -> TypeError:
-        if self.glm.X_spec is not None:
-            return TypeError(
-                f"X must be a DataFrame for a model fit with a formula, "
-                f"got a {type(X)}"
-            )
-        return TypeError(
-            f"X must be a numpy array for a model fit without a formula, "
-            f"got a {type(X)}"
-        )
 
     def _check_n_sim(self, n_sim: object) -> None:
         # bool is a subclass of int, but True is not a meaningful n_sim.

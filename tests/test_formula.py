@@ -121,3 +121,44 @@ def test_penalized_predict_gives_unseen_levels_no_effect(df: pd.DataFrame) -> No
     new = pd.DataFrame({"x": [0.5], "g": ["d"]})
     expected = np.exp(coef["Intercept"] + coef["x"] * 0.5)
     np.testing.assert_allclose(model.predict(new), expected)
+
+
+def test_design_matrix_encodes_with_training_specs(df: pd.DataFrame) -> None:
+    model = GLM(Poisson()).fit(df, formula="y ~ x + C(g)")
+    assert model.coef_ is not None
+    # Rows from a single level must still get every training column.
+    design = model.design_matrix(df[df["g"] == "b"])
+    assert design.shape == (int(np.sum(df["g"] == "b")), 4)
+    np.testing.assert_allclose(design[:, 2], 1.0)
+    np.testing.assert_allclose(design[:, 3], 0.0)
+
+
+def test_response_vector_takes_the_formula_response(df: pd.DataFrame) -> None:
+    model = GLM(Poisson()).fit(df, formula="y ~ x + C(g)")
+    np.testing.assert_allclose(model.response_vector(df), df["y"])
+
+
+def test_formula_model_response_vector_rejects_y(df: pd.DataFrame) -> None:
+    model = GLM(Poisson()).fit(df, formula="y ~ x + C(g)")
+    with pytest.raises(ValueError, match="y must not be supplied"):
+        model.response_vector(df, df["y"].to_numpy())
+
+
+def test_array_model_returns_design_matrix_and_response(df: pd.DataFrame) -> None:
+    X = np.column_stack([np.ones(len(df)), df["x"]])
+    y = df["y"].to_numpy()
+    model = GLM(Poisson()).fit(X, y)
+    assert model.design_matrix(X) is X
+    assert model.response_vector(X, y) is y
+    with pytest.raises(TypeError, match="y must be a numpy array"):
+        model.response_vector(X)
+    with pytest.raises(TypeError, match="X must be a numpy array"):
+        model.design_matrix(df)
+
+
+def test_unfit_model_cannot_encode_data(df: pd.DataFrame) -> None:
+    model = GLM(Poisson())
+    with pytest.raises(ValueError, match="not fit"):
+        model.design_matrix(df)
+    with pytest.raises(ValueError, match="not fit"):
+        model.response_vector(df)

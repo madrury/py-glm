@@ -431,12 +431,7 @@ class RidgePathCV:
         assert path.alphas_ is not None and path.models_ is not None
         alphas = path.alphas_
         template = path.models_[0]
-        if template.X_spec is not None:
-            assert isinstance(X, pd.DataFrame)
-            response = template._make_lhs_vector(X)
-        else:
-            assert y is not None
-            response = y
+        response = template.response_vector(X, y)
         frequency_weights = check_weights(
             "frequency_weights", response, frequency_weights
         )
