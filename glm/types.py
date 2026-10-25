@@ -135,10 +135,24 @@ type VarianceVector = npt.NDArray[np.float64]
 
 # Inference.
 type DevianceGradient = npt.NDArray[np.float64]
-"""The gradient of the (penalized) deviance with respect to β, shape (p,)."""
+"""The gradient of half the (penalized) deviance with respect to β, shape
+(p,)."""
+
+type ScoringStep = npt.NDArray[np.float64]
+"""A Fisher scoring step, shape (p,): the inverse of the expected Hessian of
+half the (penalized) deviance applied to its gradient, H⁻¹g. It is subtracted
+from the coefficients, and lives in the same coordinates as them, but is a
+change in the coefficients rather than an estimate of them."""
 
 type InformationMatrix = npt.NDArray[np.float64]
-"""The Fisher information matrix, shape (p, p)."""
+"""The information matrix XᵗWX, shape (p, p): the expected Hessian of half the
+deviance. This is the Fisher information times the dispersion φ, so the
+coefficients' covariance is φ times its inverse."""
+
+type DevianceHessian = npt.NDArray[np.float64]
+"""The expected Hessian of half the penalized deviance, shape (p, p): the
+information matrix plus the penalty's Hessian, which Fisher scoring inverts to
+take a step."""
 
 type CovarianceMatrix = npt.NDArray[np.float64]
 """The estimated covariance matrix of the coefficients, shape (p, p)."""

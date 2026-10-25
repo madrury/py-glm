@@ -20,6 +20,7 @@ from glm.types import (
     DesignSpec,
     Deviance,
     DevianceGradient,
+    DevianceHessian,
     Formula,
     FrequencyWeights,
     InformationMatrix,
@@ -30,6 +31,7 @@ from glm.types import (
     PValueVector,
     PrecisionWeights,
     ResponseVector,
+    ScoringStep,
     StandardErrorVector,
     Standardization,
     VarianceVector,
@@ -200,8 +202,9 @@ class GLM:
         The final deviance of the fit model on the training data.
 
     information_matrix_: array, shape (n_features, n_features)
-        The estimated information matrix. This information matrix is evaluated
-        at the fit parameters.
+        The estimated information matrix XᵗWX, evaluated at the fit
+        coefficients. This is the Fisher information times the dispersion, so
+        the coefficients' covariance is dispersion_ times its inverse.
 
     n: float, positive
         The number of observations the model was fit to: the sum of the
@@ -500,16 +503,21 @@ class GLM:
         is_converged = False
         n_iter = 0
         while n_iter < max_iter and not is_converged:
-            dβ = self._dβ(design, y, μ, dμ, var, observation_weights)
-            ddβ = self._ddβ(design, dμ, var, observation_weights)
+            # The gradient and expected Hessian of half the penalized deviance.
+            gradient = self._deviance_gradient(
+                design, y, μ, dμ, var, observation_weights
+            )
+            hessian: DevianceHessian = self._information_matrix(
+                design, dμ, var, observation_weights
+            )
             if self._is_regularized():
-                dβ = dβ + self._d_penalty(β, penalized_coefficients)
-                ddβ = self._dd_penalty(ddβ, penalized_coefficients)
-            step = np.linalg.solve(ddβ, dβ)
+                gradient = gradient + self._penalty_gradient(β, penalized_coefficients)
+                hessian = self._add_penalty_hessian(hessian, penalized_coefficients)
+            step = np.linalg.solve(hessian, gradient)
             # Check before stepping, as the predicted decrease describes the
             # current β, but take the step either way: at convergence it is
             # tiny, and refines the estimate.
-            is_converged = has_converged(dβ, step, penalized_deviance, tol)
+            is_converged = has_converged(gradient, step, penalized_deviance, tol)
             β = β - step
             # Refresh the fit at the new coefficients, so that the next
             # iteration, and the deviance and information matrix stored after
@@ -536,7 +544,9 @@ class GLM:
         # Mixing them is fine: standardizing changes the coefficients but not
         # the linear predictor, design @ β = X @ coef_, so μ, and with it dμ
         # and var, are the same in either coordinates.
-        self.information_matrix_ = self._ddβ(X, dμ, var, observation_weights)
+        self.information_matrix_ = self._information_matrix(
+            X, dμ, var, observation_weights
+        )
         self.fit_inputs_ = fit_inputs
         return self
 
@@ -867,7 +877,7 @@ class GLM:
     def _is_regularized(self) -> bool:
         return self.alpha > 0.0
 
-    def _dβ(
+    def _deviance_gradient(
         self,
         X: DesignMatrix,
         y: ResponseVector,
@@ -876,16 +886,22 @@ class GLM:
         var: VarianceVector,
         observation_weights: ObservationWeights,
     ) -> DevianceGradient:
+        """The gradient of half the deviance with respect to the coefficients,
+        -Xᵗ (y - μ) dμ / V(μ), observation weighted. This is -φ times the score,
+        the gradient of the log likelihood."""
         working_residuals = observation_weights * (y - μ) * (dμ / var)
         return -np.sum(X * working_residuals.reshape(-1, 1), axis=0)
 
-    def _ddβ(
+    def _information_matrix(
         self,
         X: DesignMatrix,
         dμ: InverseLinkDerivative,
         var: VarianceVector,
         observation_weights: ObservationWeights,
     ) -> InformationMatrix:
+        """The expected Hessian of half the deviance, XᵗWX. This is φ times the
+        Fisher information. With a canonical link it equals the actual Hessian,
+        and Fisher scoring is Newton's method."""
         working_weights: WorkingWeights = observation_weights * dμ**2 / var
         information: InformationMatrix = X.T @ (X * working_weights[:, None])
         return information
@@ -909,22 +925,23 @@ class GLM:
         penalty = self.alpha * float(np.sum(β[penalized_coefficients] ** 2))
         return self.family.deviance(y, μ, observation_weights) + penalty
 
-    def _d_penalty(
+    def _penalty_gradient(
         self, β: CoefficientVector, penalized_coefficients: CoefficientMask
     ) -> DevianceGradient:
-        # Like dβ, the gradient of half the penalty.
-        dβ_penalty: DevianceGradient = np.where(
+        # Like _deviance_gradient, the gradient of half the penalty.
+        penalty_gradient: DevianceGradient = np.where(
             penalized_coefficients, self.alpha * β, 0.0
         )
-        return dβ_penalty
+        return penalty_gradient
 
-    def _dd_penalty(
-        self, ddβ: InformationMatrix, penalized_coefficients: CoefficientMask
-    ) -> InformationMatrix:
-        # Like ddβ, the Hessian of half the penalty, added to the diagonal.
+    def _add_penalty_hessian(
+        self, hessian: InformationMatrix, penalized_coefficients: CoefficientMask
+    ) -> DevianceHessian:
+        # Like _information_matrix, the Hessian of half the penalty, added to
+        # the diagonal in place.
         idxs = np.flatnonzero(penalized_coefficients)
-        ddβ[idxs, idxs] += self.alpha
-        return ddβ
+        hessian[idxs, idxs] += self.alpha
+        return hessian
 
     def _make_rhs_matrix(self, X: DesignFrame) -> DesignMatrix:
         if self.X_spec is None:
@@ -1010,7 +1027,7 @@ def unseen_categories(spec: DesignSpec, X: DesignFrame) -> dict[str, list[Any]]:
 
 def has_converged(
     gradient: DevianceGradient,
-    step: CoefficientVector,
+    step: ScoringStep,
     penalized_deviance: Deviance,
     tol: float,
 ) -> bool:
