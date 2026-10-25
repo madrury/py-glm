@@ -43,16 +43,20 @@ def test_ridge_solves_penalized_score_equations(
 ) -> None:
     X = X * np.array([1.0, 1.0, 10.0, 0.1])  # Columns on different scales.
     μ = family.inv_link(X @ np.array([0.2, 0.5, -0.03, 1.0]))
-    y = family.sample(μ, dispersion=0.5 if family.has_dispersion else 1.0)
+    y = family.sample(
+        μ,
+        dispersion=0.5 if family.has_dispersion else 1.0,
+        rng=np.random.default_rng(154),
+    )
     model = GLM(family, alpha=alpha, standardize=standardize).fit(
-        X, y, tol=1e-14, max_iter=1000
+        X, y, tol=1e-20, max_iter=1000
     )
     assert model.coef_ is not None
     η = X @ model.coef_
     μ_hat = family.inv_link(η)
     # The penalty is alpha * sum((s * β)[1:]**2), with s the column scales (all
     # ones without standardizing). At its minimum, half the deviance's
-    # gradient, -X' (y - μ) dμ / V(μ) (the left hand side of the score
+    # gradient, -Xᵗ (y - μ) dμ / V(μ) (the left hand side of the score
     # equations, see Muller eq. 11), balances half the penalty's, alpha * s**2 *
     # β, for every coefficient except the unpenalized intercept.
     scales = Standardizer(standardize).fit(X).scales_
@@ -100,9 +104,13 @@ def test_ridge_without_intercept_solves_penalized_score_equations(
     alpha = 10.0
     X = X[:, 1:] * np.array([1.0, 10.0, 0.1])  # No intercept; mixed scales.
     μ = family.inv_link(X @ np.array([0.5, -0.03, 1.0]))
-    y = family.sample(μ, dispersion=0.5 if family.has_dispersion else 1.0)
+    y = family.sample(
+        μ,
+        dispersion=0.5 if family.has_dispersion else 1.0,
+        rng=np.random.default_rng(154),
+    )
     model = GLM(family, alpha=alpha, standardize=standardize).fit(
-        X, y, tol=1e-14, max_iter=1000, validate_intercept=False
+        X, y, tol=1e-20, max_iter=1000, validate_intercept=False
     )
     assert model.coef_ is not None
     η = X @ model.coef_

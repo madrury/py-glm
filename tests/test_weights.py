@@ -7,7 +7,10 @@ from glm.families import Bernoulli, ExponentialFamily, Gamma, Gaussian, Poisson
 from glm.glm import GLM
 
 N = 300
-FIT_TOL = 1e-12
+# The convergence rule is on the predicted decrease in the deviance, which is
+# quadratic in the coefficients' error, so matching coefficients to rtol 1e-6
+# needs a tolerance far below 1e-12.
+FIT_TOL = 1e-20
 
 STATSMODELS_FAMILIES = {
     "Gaussian": sm.families.Gaussian(),

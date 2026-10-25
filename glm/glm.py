@@ -43,7 +43,6 @@ from glm.utils import (
     check_offset,
     check_standardization,
     check_weights,
-    has_converged,
     has_intercept_column,
     default_X_names,
     default_y_name,
@@ -308,9 +307,10 @@ class GLM:
             The maximum number of iterations for the fitting algorithm.
 
         tol: float, non-negative and less than one
-            The convergence tolerance for the fitting algorithm. The relative
-            change in deviance is compared to this tolerance to check for
-            convergence.
+            The convergence tolerance for the fitting algorithm. Fitting stops
+            when the decrease in the penalized deviance that the next step
+            predicts, relative to the penalized deviance, is within this
+            tolerance (see has_converged).
 
         validate_intercept: bool
             Should we defensively check that column 0 of the design matrix,
@@ -478,30 +478,37 @@ class GLM:
             standardizer = Standardizer(self.standardize).fit(X, frequency_weights)
             design = standardizer.transform(X)
             β = standardizer.coef_to_standardized(warm_start)
+        # Begin main fitting loop:
         η = design @ β + offset
         μ = family.inv_link(η)
         dμ = family.d_inv_link(η, μ)
         var = family.variance(μ)
-        penalized_deviance = np.inf
+        penalized_deviance = self._penalized_deviance(
+            y, μ, β, penalized_coefficients, observation_weights
+        )
         is_converged = False
         n_iter = 0
         while n_iter < max_iter and not is_converged:
-            η = design @ β + offset
-            μ = family.inv_link(η)
-            dμ = family.d_inv_link(η, μ)
-            var = family.variance(μ)
             dβ = self._dβ(design, y, μ, dμ, var, observation_weights)
             ddβ = self._ddβ(design, dμ, var, observation_weights)
             if self._is_regularized():
                 dβ = dβ + self._d_penalty(β, penalized_coefficients)
                 ddβ = self._dd_penalty(ddβ, penalized_coefficients)
-            β = β - np.linalg.solve(ddβ, dβ)
-            penalized_deviance_previous = penalized_deviance
+            step = np.linalg.solve(ddβ, dβ)
+            # Check before stepping, as the predicted decrease describes the
+            # current β, but take the step either way: at convergence it is
+            # tiny, and refines the estimate.
+            is_converged = has_converged(dβ, step, penalized_deviance, tol)
+            β = β - step
+            # Refresh the fit at the new coefficients, so that the next
+            # iteration, and the deviance and information matrix stored after
+            # the loop, all describe the β we return.
+            η = design @ β + offset
+            μ = family.inv_link(η)
+            dμ = family.d_inv_link(η, μ)
+            var = family.variance(μ)
             penalized_deviance = self._penalized_deviance(
                 y, μ, β, penalized_coefficients, observation_weights
-            )
-            is_converged = has_converged(
-                penalized_deviance, penalized_deviance_previous, tol
             )
             n_iter += 1
 
@@ -513,6 +520,11 @@ class GLM:
         self.deviance_ = family.deviance(y, μ, observation_weights)
         self.n = float(np.sum(frequency_weights[observation_weights > 0]))
         self.p = X.shape[1]
+        # dμ and var come from the loop, which may have worked on standardized
+        # columns, while the information matrix is wanted on the original ones.
+        # Mixing them is fine: standardizing changes the coefficients but not
+        # the linear predictor, design @ β = X @ coef_, so μ, and with it dμ
+        # and var, are the same in either coordinates.
         self.information_matrix_ = self._ddβ(X, dμ, var, observation_weights)
         self.fit_inputs_ = fit_inputs
         return self
@@ -983,3 +995,83 @@ def unseen_categories(spec: DesignSpec, X: DesignFrame) -> dict[str, list[Any]]:
         if new_levels:
             unseen[str(factor)] = new_levels
     return unseen
+
+
+def has_converged(
+    gradient: DevianceGradient,
+    step: CoefficientVector,
+    penalized_deviance: Deviance,
+    tol: float,
+) -> bool:
+    """Has Fisher scoring converged, using the squared Newton decrement.
+
+    Fisher scoring minimizes a quadratic model of the penalized deviance F
+    around the current coefficients. With g the gradient of ½F, and H its
+    expected Hessian (the Fisher information, up to the dispersion, plus the
+    penalty's Hessian), the model is:
+
+        ½F(β - s) ≈ ½F(β) - gᵗs + ½ sᵗHs,
+
+    minimized by the step s = H⁻¹g. That step decreases the quadratic
+    approximation of F (twice the model above) by
+
+        λ² = gᵗH⁻¹g = sᵗHs = gᵗs,
+
+    the squared Newton decrement [1], the decrease in F that the step
+    anticipates. We stop when this predicted decrease is small relative to F
+    itself, λ² ≤ tol · |F|, so that tol is unitless, as in the classic rule of
+    comparing successive deviances.
+
+    Two other views of λ²:
+
+      - The squared length of the step, in the norm defined by H:
+        λ² = sᵗHs.
+      - The squared length of the gradient, in the norm defined by H⁻¹:
+        λ² = gᵗH⁻¹g.
+
+    From this point of view, the stopping criterion is a condition on the size
+    of the step, or of the gradient, scaled by how precisely the data and the
+    penalty determine the coefficients in each direction.
+
+    Since H is positive definite, λ² is zero exactly when the gradient is, and
+    shrinks to zero with it as the fit converges. This justifies the condition
+    as a stopping criterion.
+
+    Both norms are invariant under invertible linear changes of coordinates, so
+    the rule is too. For example, in an unpenalized fit, rescaling a column of
+    the design matrix, or fitting with or without standardization, doesn't
+    change when fitting stops, as it would for a rule on the plain Euclidean
+    norm of the gradient.
+
+    Parameters
+    ----------
+    gradient: array, shape (n_features, )
+        The gradient of half the penalized deviance, g.
+
+    step: array, shape (n_features, )
+        The Fisher scoring step, H⁻¹g, to be subtracted from the
+        coefficients.
+
+    penalized_deviance: float
+        The penalized deviance F, at the coefficients the gradient was
+        computed at.
+
+    tol: float
+        The convergence tolerance, on the predicted decrease in F relative to
+        F.
+
+    Returns
+    -------
+    converged: bool
+        Whether the predicted decrease is within the tolerance. Always False
+        if F isn't finite.
+
+    References
+    ----------
+    .. [1] S. Boyd and L. Vandenberghe, *Convex Optimization*, Cambridge
+       University Press, 2004, Section 9.5.1, "The Newton decrement".
+    """
+    if not np.isfinite(penalized_deviance):
+        return False
+    newton_decrement_squared = float(gradient @ step)
+    return newton_decrement_squared <= tol * abs(penalized_deviance)

@@ -5,7 +5,7 @@ import pandas as pd
 import pytest
 
 from glm.families import Bernoulli, ExponentialFamily, Gamma, Gaussian, Poisson
-from glm.glm import GLM
+from glm.glm import GLM, has_converged
 
 N = 500
 
@@ -190,3 +190,43 @@ def test_cold_start_without_intercept_handles_large_predictors(
     zero_start = GLM(family).fit(X, y, validate_intercept=False, warm_start=np.zeros(2))
     assert model.coef_ is not None and zero_start.coef_ is not None
     np.testing.assert_allclose(model.coef_, zero_start.coef_)
+
+
+@pytest.mark.parametrize("family", [Poisson(), Bernoulli()])
+@pytest.mark.parametrize("alpha", [0.0, 5.0])
+def test_stored_fit_describes_the_returned_coefficients(
+    family: ExponentialFamily, alpha: float
+) -> None:
+    # Stop before convergence, where the last step is large enough that
+    # quantities from the previous iterate would differ noticeably.
+    rng = np.random.default_rng(154)
+    n = 500
+    X = np.column_stack([np.ones(n), rng.normal(size=n), rng.normal(5.0, 2.0, size=n)])
+    η = 0.2 + 0.5 * X[:, 1] - 0.1 * X[:, 2]
+    y = family.sample(family.inv_link(η), 1.0, rng=rng)
+    model = GLM(family, alpha=alpha).fit(X, y, max_iter=3)
+    assert model.coef_ is not None
+    μ = model.predict(X)
+    np.testing.assert_allclose(model.deviance_, family.deviance(y, μ))
+    dμ = family.d_inv_link(X @ model.coef_, μ)
+    working_weights = dμ**2 / family.variance(μ)
+    np.testing.assert_allclose(
+        model.information_matrix_, X.T @ (X * working_weights[:, None])
+    )
+
+
+def test_has_converged_compares_predicted_decrease_to_deviance() -> None:
+    gradient = np.array([1e-3, 2e-3])
+    step = np.array([1e-3, 1e-3])
+    # The predicted decrease is gᵗs = 3e-6, against tol times the deviance.
+    assert has_converged(gradient, step, 100.0, tol=1e-7)
+    assert not has_converged(gradient, step, 100.0, tol=1e-9)
+
+
+def test_has_converged_at_a_perfect_fit() -> None:
+    assert has_converged(np.zeros(2), np.zeros(2), 0.0, tol=1e-8)
+
+
+@pytest.mark.parametrize("penalized_deviance", [np.inf, np.nan])
+def test_has_not_converged_with_non_finite_deviance(penalized_deviance: float) -> None:
+    assert not has_converged(np.ones(2), np.ones(2), penalized_deviance, tol=1e-8)
