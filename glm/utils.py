@@ -76,10 +76,10 @@ def check_full_rank(X: DesignMatrix, X_names: list[str]) -> None:
     non-zero ones. The fit then converges, with coefficients that are arbitrary
     along the dependent directions, and nan standard errors.
 
-    Pass only the rows with positive weight. The information matrix X'WX, with
+    Pass only the rows with positive weight. The information matrix XᵗWX, with
     W the diagonal working weights, has the rank of W^(1/2) X, and on rows with
     positive weight W^(1/2) is invertible, so it has the rank of X. Checking X,
-    rather than X'WX, also keeps rank deficiency, where the coefficients aren't
+    rather than XᵗWX, also keeps rank deficiency, where the coefficients aren't
     determined, apart from tiny working weights, which leave them determined
     but poorly conditioned.
     """

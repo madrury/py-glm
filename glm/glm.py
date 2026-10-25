@@ -59,12 +59,12 @@ NON_FINITE_ESTIMATES_MESSAGE = (
 class FitInputs:
     """Records which optional inputs a model was fit with, so that a bootstrap
     can check it is given the same ones. A bootstrap refits the model to data
-    like the original's, so leaving out an offset or weights the model was fit
+    like the original's, so leaving out an offset or weights used during fitting
     with would silently change the model being bootstrapped.
 
-    has_binary_response records whether every response was 0 or 1, which decides
-    whether a Bernoulli model's responses can be simulated in a parametric
-    bootstrap.
+    The has_binary_response flag records whether every response was 0 or 1,
+    which decides whether precision weights are needed to simulate a Bernoulli
+    model's responses in a parametric bootstrap.
     """
 
     has_offset: bool
@@ -137,8 +137,13 @@ class GLM:
     the model. See the documentation for ExponentialFamily for details.
 
     The model is fit to data using the well known Fisher Scoring algorithm,
-    which is a version of Newton's method where the hessian is replaced with its
-    expectation with respect to the assumed distribution of Y.
+    which is a Quasi Newton's method where the hessian is replaced with its
+    expectation with respect to the assumed distribution of Y. This expected
+    hessian is called the Fisher Information in statistical literature. When
+    using a canonical link function for an exponential family, this reduces to
+    exactly Newton's method and thus has quadratic convergence guarentees. When
+    using a non-canonical link, such as with Gamma GLM's (which use log, not the
+    reciporical function) convergence is sub-quadratic.
 
     Parameters
     ----------
@@ -365,7 +370,8 @@ class GLM:
         y_name: str | None,
     ) -> tuple[DesignMatrix, ResponseVector]:
         """Check the training data, and turn it into a design matrix and
-        response vector, learning the model's formula specs and names."""
+        response vector, remembering the model's formula specs and feature
+        names."""
         if formula:
             if not isinstance(X, pd.DataFrame):
                 raise TypeError(
@@ -374,14 +380,15 @@ class GLM:
                 )
             # Raise on missing values rather than dropping rows, which would
             # silently misalign the data with any offset or sample weights.
-            # Penalized models encode every level of a categorical variable,
-            # rather than dropping a reference level, so that the penalty
-            # treats all levels alike; the penalty keeps the fit well defined.
             matrices = formulaic.model_matrix(
                 formula,
                 X,
                 output="numpy",
                 na_action="raise",
+                # Regularized models encode every level of a categorical
+                # variable, rather than dropping a reference level, to ensure
+                # that the penalty treats all levels alike. This does not cause
+                # any rank defficiency, the penalty keeps the fit well defined.
                 ensure_full_rank=not self._is_regularized(),
             )
             if not isinstance(matrices, formulaic.ModelMatrices):
@@ -438,7 +445,7 @@ class GLM:
         check_no_missing_values("X", X)
         check_no_missing_values("y", y)
         # Record which optional inputs were given before the defaults below
-        # replace the missing ones with zeros and ones.
+        # replace the missing ones with their default values.
         fit_inputs = FitInputs(
             has_offset=offset is not None,
             has_frequency_weights=frequency_weights is not None,
@@ -453,19 +460,23 @@ class GLM:
         check_no_missing_values("offset", offset)
         frequency_weights = check_weights("frequency_weights", y, frequency_weights)
         precision_weights = check_weights("precision_weights", y, precision_weights)
-        # Each row's weight in the fit: the weight on its contribution to the
-        # deviance.
+        # Each row's weight weight on its contribution to the deviance.
         observation_weights: ObservationWeights = frequency_weights * precision_weights
         # A ridge penalty makes the fit well defined even when the matrix is
         # rank deficient.
         if not self._is_regularized():
             # Zero weight rows do not influence the fit, so don't need to be
             # accounted for in the rank.
+            # We note that we require the information matricies X^t W X (where W
+            # is the diagonal matrix of working weights) to be full rank at each
+            # iteration. It sufficies to ensure that X itself is full rank,
+            # because rank(XᵗWX) = rank(√WX) = rank(X).
             check_full_rank(
                 X[observation_weights > 0], self.X_names or default_X_names(X)
             )
         penalized_coefficients = self._penalized_coefficients(X)
-
+        # We're gonna reference self.family a lot, so cache a local variable for
+        # a bit of efficiency.
         family = self.family
         if warm_start is None:
             warm_start = self._cold_start(X, y, offset, observation_weights)

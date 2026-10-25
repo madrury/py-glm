@@ -611,7 +611,7 @@ def default_alphas(
     completely when alpha is much larger (Hastie, Tibshirani and Friedman, The
     Elements of Statistical Learning, 2nd ed., section 3.4.1, for linear
     regression; a GLM is locally a weighted linear regression, with the
-    information matrix in place of X'X). So the path happens between the
+    information matrix in place of XᵗX). So the path happens between the
     eigenvalues, and the grid is log-spaced from GRID_MARGIN times the largest
     eigenvalue down to the smallest nonzero eigenvalue divided by GRID_MARGIN.
 
@@ -696,7 +696,7 @@ def _working_weights(
     μ: MeanVector,
     observation_weights: ObservationWeights,
 ) -> WorkingWeights:
-    """The weights W in the information matrix X'WX, at the means μ."""
+    """The weights W in the information matrix XᵗWX, at the means μ."""
     # Observation weights here, since this formula arises from an expected
     # second derivative of the deviance, which is observation weighted.
     working_weights: WorkingWeights = (
@@ -718,26 +718,26 @@ def _profiled_eigenvalues(
         # coefficients are, the intercept is refit freely alongside them. The
         # eigenvalues we want measure the information about the penalized
         # coefficients that remains *after* the intercept has been fit.
-        # Their block of the information matrix, Z'WZ, overstates it: a column
-        # with a large mean partly mimics the intercept, and Z'WZ credits it
+        # Their block of the information matrix, ZᵗWZ, overstates it: a column
+        # with a large mean partly mimics the intercept, and ZᵗWZ credits it
         # with information that really pins down the response's overall level.
         #
         # Removing what the intercept can explain is called "profiling it out".
         #
-        # Write the full information matrix X'WX, intercept first, in blocks:
+        # Write the full information matrix XᵗWX, intercept first, in blocks:
         #
-        #   [ 1'W1  1'WZ ]
-        #   [ Z'W1  Z'WZ ]
+        #   [ 1ᵗW1  1ᵗWZ ]
+        #   [ ZᵗW1  ZᵗWZ ]
         #
         # The information about Z's coefficients with the intercept profiled
         # out is the Schur complement of the intercept's block:
         #
-        #   Z'WZ - Z'W1 (1'W1)⁻¹ 1'WZ = (Z - 1m)' W (Z - 1m),
+        #   ZᵗWZ - ZᵗW1 (1ᵗW1)⁻¹ 1ᵗWZ = (Z - 1m)ᵗ W (Z - 1m),
         #
-        # where m = (1'W1)⁻¹ 1'WZ is the vector of the columns' means, weighted
+        # where m = (1ᵗW1)⁻¹ 1ᵗWZ is the vector of the columns' means, weighted
         # by the working weights W (expanding the right hand side gives the
         # left). So centering each column at its weighted mean, and then
-        # forming Z'WZ, computes exactly the profiled information. The
+        # forming ZᵗWZ, computes exactly the profiled information. The
         # Standardizer's centering doesn't suffice: it uses the frequency weights,
         # not the working weights, and doesn't center indicator columns.
         Z_penalized = Z_penalized - np.average(

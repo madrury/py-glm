@@ -338,13 +338,13 @@ def _simulate(
     if n_correlated > 0:
         if correlation is None:
             # Mixing independent normals with a matrix A of standard normal
-            # entries gives predictors with covariance A'A, a random
+            # entries gives predictors with covariance AᵗA, a random
             # correlation structure.
             mixing = rng.normal(size=(n_correlated, n_correlated))
         else:
             # Mixing with the Cholesky factor L of the equicorrelation matrix C,
             # with ones on the diagonal and the desired correlation elsewhere,
-            # gives predictors with covariance L'L = C.
+            # gives predictors with covariance LᵗL = C.
             C = np.full((n_correlated, n_correlated), correlation)
             np.fill_diagonal(C, 1.0)
             mixing = np.linalg.cholesky(C).T

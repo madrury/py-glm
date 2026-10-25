@@ -195,7 +195,7 @@ class Simulation:
             and not fit_inputs.has_binary_response
         ):
             raise ValueError(
-                "The model was fit to proportions, not 0/1 responses, so to "
+                "The model was fit to proportions, not 0/1 responses. To "
                 "simulate them, pass their numbers of trials as precision_weights, "
                 "both to GLM.fit and here."
             )

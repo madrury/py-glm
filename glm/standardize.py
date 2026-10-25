@@ -61,9 +61,10 @@ class Standardizer:
         self, X: DesignMatrix, frequency_weights: FrequencyWeights | None = None
     ) -> Self:
         """Learn each column's center and scale, as its mean and standard
-        deviation, weighted by the frequency weights. Precision weights
-        describe how precise each row's response is, not how common its
-        predictors are, so they don't enter.
+        deviation, weighted by the frequency weights.
+
+        Precision weights describe how precise each row's response is, not how
+        common its predictors are, so they don't play a role.
         """
         weights = (
             np.ones(X.shape[0]) if frequency_weights is None else frequency_weights
@@ -100,14 +101,13 @@ class Standardizer:
         centers, scales = self._fitted()
         # In terms of the original columns, the standardized linear predictor is
         #
-        #   Σⱼ γⱼ (xⱼ - mⱼ) / sⱼ = Σⱼ (γⱼ / sⱼ) xⱼ - Σⱼ (γⱼ / sⱼ) mⱼ,
+        #   Σⱼγⱼ(xⱼ - mⱼ)/sⱼ = Σⱼ(γⱼ / sⱼ)xⱼ - Σⱼ(γⱼ/sⱼ)mⱼ,
         #
         # so each coefficient is βⱼ = γⱼ / sⱼ, and what remains is the constant
-        # -Σⱼ βⱼ mⱼ. Column 0 is never centered (m₀ = 0), so the constant sums
-        # over the other columns. Since columns are only centered when column 0
-        # is an intercept (x₀ = 1), the constant can be folded into the
-        # intercept's coefficient; without one, every mⱼ is zero, and so is the
-        # constant.
+        # -Σⱼ βⱼ mⱼ. Column 0 is never centered (m₀ = 0), so the sum is over j
+        # >= 1. Since columns are only centered when column 0 is an intercept
+        # (x₀ == 1), the constant can be folded into the intercept's coefficient;
+        # without one, every mⱼ is zero, and so is the constant.
         β = γ / scales
         β[0] -= np.sum(β[1:] * centers[1:])
         return β
@@ -116,9 +116,13 @@ class Standardizer:
         """Convert coefficients for the original columns into coefficients for
         the standardized columns, which give the same linear predictor."""
         centers, scales = self._fitted()
-        # The inverse of coef_to_original: γⱼ = βⱼ sⱼ, and the intercept's
-        # coefficient takes back the constant, Σⱼ βⱼ mⱼ, that centering moved
-        # into it.
+        # The inverse of coef_to_original:
+        #
+        #   Σⱼ βⱼxⱼ = Σⱼ(βⱼsⱼ) (xⱼ - mⱼ)/sⱼ +  Σⱼβⱼmⱼ,
+        #
+        # So each standardized coefficient is γⱼ = βⱼ sⱼ for j >= 1, and the
+        # intercept's coefficient takes back the constant, Σⱼ βⱼ mⱼ that
+        # centering moved into it.
         γ = β * scales
         γ[0] += np.sum(β[1:] * centers[1:])
         return γ

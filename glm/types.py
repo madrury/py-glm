@@ -54,7 +54,7 @@ shape (n,): the weight on its contribution to the deviance."""
 type WorkingWeights = npt.NDArray[np.float64]
 """The weights W of Fisher scoring's weighted least squares step, shape (n,):
 W = observation weight * (dμ/dη)² / V(μ), so that the information matrix is
-X'WX. Unlike the observation weights, they depend on the current fit."""
+XᵗWX. Unlike the observation weights, they depend on the current fit."""
 
 # Penalized fitting.
 type AlphaGrid = npt.NDArray[np.float64]

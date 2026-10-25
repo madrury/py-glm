@@ -90,7 +90,7 @@ def test_default_grid_spans_whole_path(df: pd.DataFrame) -> None:
 
 def test_default_alphas_span_the_eigenvalues() -> None:
     # For a Gaussian model, the information matrix of the standardized,
-    # centered columns is Z'Z, so the grid spans its eigenvalues.
+    # centered columns is ZᵗZ, so the grid spans its eigenvalues.
     rng = np.random.default_rng(154)
     x1 = rng.normal(size=N)
     x2 = 0.95 * x1 + np.sqrt(1 - 0.95**2) * rng.normal(size=N)

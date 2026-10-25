@@ -93,6 +93,9 @@ RANK_DEFICIENT_DESIGNS: dict[str, Callable[[np.ndarray], np.ndarray]] = {
     "linear combination": lambda X: np.column_stack([X, 2 * X[:, 1] - 3 * X[:, 0]]),
     "column of zeros": lambda X: np.column_stack([X, np.zeros(N)]),
     "constant column": lambda X: np.column_stack([X, np.full(N, 5.0)]),
+    "random linear combination": lambda X: np.column_stack(
+        [X, X @ np.random.uniform(-1.0, 1.0, X.shape[1])]
+    ),
 }
 
 
