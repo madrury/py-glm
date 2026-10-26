@@ -85,7 +85,7 @@ def test_fold_deviances_match_independent_fits(
     X, y = arrays
     frequency, precision = weights
     offset = np.full(N, 0.1)
-    cv = RidgePathCV(Poisson(), alphas=ALPHAS, n_folds=N_FOLDS).fit(
+    cv = RidgePathCV(Poisson(), n_folds=N_FOLDS).fit(
         X,
         y,
         offset=offset,
@@ -93,6 +93,7 @@ def test_fold_deviances_match_independent_fits(
         precision_weights=precision,
         tol=1e-12,
         rng=np.random.default_rng(154),
+        alphas=ALPHAS,
     )
     folds = fold_frequency_weights(frequency, N_FOLDS, np.random.default_rng(154))
     np.testing.assert_array_equal(cv.fold_frequency_weights_, folds)
@@ -129,8 +130,11 @@ def test_rows_without_weight_are_never_held_out(
     # some fold would likely hold out no weight at all.
     precision = np.zeros(N)
     precision[:20] = 1.0
-    cv = RidgePathCV(Poisson(), alphas=ALPHAS, n_folds=N_FOLDS).fit(
-        *arrays, precision_weights=precision, rng=np.random.default_rng(154)
+    cv = RidgePathCV(Poisson(), n_folds=N_FOLDS).fit(
+        *arrays,
+        precision_weights=precision,
+        rng=np.random.default_rng(154),
+        alphas=ALPHAS,
     )
     assert cv.fold_frequency_weights_ is not None and cv.fold_weights_ is not None
     np.testing.assert_array_equal(cv.fold_frequency_weights_[:, 20:], 0.0)
@@ -141,8 +145,11 @@ def test_cv_deviance_averages_folds_by_weight(
     arrays: tuple[np.ndarray, np.ndarray], weights: tuple[np.ndarray, np.ndarray]
 ) -> None:
     frequency, _ = weights
-    cv = RidgePathCV(Poisson(), alphas=ALPHAS, n_folds=N_FOLDS).fit(
-        *arrays, frequency_weights=frequency, rng=np.random.default_rng(154)
+    cv = RidgePathCV(Poisson(), n_folds=N_FOLDS).fit(
+        *arrays,
+        frequency_weights=frequency,
+        rng=np.random.default_rng(154),
+        alphas=ALPHAS,
     )
     assert cv.fold_deviances_ is not None and cv.fold_weights_ is not None
     np.testing.assert_allclose(
@@ -150,8 +157,8 @@ def test_cv_deviance_averages_folds_by_weight(
         np.average(cv.fold_deviances_, axis=0, weights=cv.fold_weights_),
     )
     # Equal fold weights give the usual standard error of the mean.
-    equal = RidgePathCV(Poisson(), alphas=ALPHAS, n_folds=N_FOLDS).fit(
-        *arrays, rng=np.random.default_rng(154)
+    equal = RidgePathCV(Poisson(), n_folds=N_FOLDS).fit(
+        *arrays, rng=np.random.default_rng(154), alphas=ALPHAS
     )
     assert equal.fold_deviances_ is not None
     np.testing.assert_allclose(
@@ -162,18 +169,18 @@ def test_cv_deviance_averages_folds_by_weight(
 
 def test_full_path_matches_ridge_path(arrays: tuple[np.ndarray, np.ndarray]) -> None:
     # The grid, and the models to choose from, come from the full data.
-    cv = RidgePathCV(Poisson(), n_alphas=10, n_folds=N_FOLDS).fit(
-        *arrays, rng=np.random.default_rng(154)
+    cv = RidgePathCV(Poisson(), n_folds=N_FOLDS).fit(
+        *arrays, rng=np.random.default_rng(154), n_alphas=10
     )
-    path = RidgePath(Poisson(), n_alphas=10).fit(*arrays)
+    path = RidgePath(Poisson()).fit(*arrays, n_alphas=10)
     assert cv.path_ is not None
     np.testing.assert_array_equal(cv.alphas_, path.alphas_)
     np.testing.assert_allclose(cv.path_.coefficient_table(), path.coefficient_table())
 
 
 def test_alpha_min_has_the_smallest_cv_deviance(df: pd.DataFrame) -> None:
-    cv = RidgePathCV(Poisson(), n_alphas=30, n_folds=N_FOLDS).fit(
-        df, formula="y ~ x1 + x2 + C(g)", rng=np.random.default_rng(154)
+    cv = RidgePathCV(Poisson(), n_folds=N_FOLDS).fit(
+        df, formula="y ~ x1 + x2 + C(g)", rng=np.random.default_rng(154), n_alphas=30
     )
     assert cv.alphas_ is not None and cv.cv_deviance_ is not None
     best = int(np.argmin(cv.cv_deviance_))
@@ -182,8 +189,8 @@ def test_alpha_min_has_the_smallest_cv_deviance(df: pd.DataFrame) -> None:
 
 
 def test_cv_deviance_rises_when_overpenalized(df: pd.DataFrame) -> None:
-    cv = RidgePathCV(Poisson(), n_alphas=30, n_folds=N_FOLDS).fit(
-        df, formula="y ~ x1 + x2 + C(g)", rng=np.random.default_rng(154)
+    cv = RidgePathCV(Poisson(), n_folds=N_FOLDS).fit(
+        df, formula="y ~ x1 + x2 + C(g)", rng=np.random.default_rng(154), n_alphas=30
     )
     assert cv.cv_deviance_ is not None and cv.alphas_ is not None
     # Shrinking every coefficient to zero discards real effects.
@@ -196,8 +203,8 @@ def test_level_unseen_in_training_fold(df: pd.DataFrame) -> None:
     # penalized fold models predict it at the baseline, without raising.
     df = df.copy()
     df.loc[0, "g"] = "rare"
-    cv = RidgePathCV(Poisson(), n_alphas=10, n_folds=N_FOLDS).fit(
-        df, formula="y ~ x1 + C(g)", rng=np.random.default_rng(154)
+    cv = RidgePathCV(Poisson(), n_folds=N_FOLDS).fit(
+        df, formula="y ~ x1 + C(g)", rng=np.random.default_rng(154), n_alphas=10
     )
     assert cv.fold_deviances_ is not None
     assert np.all(np.isfinite(cv.fold_deviances_))

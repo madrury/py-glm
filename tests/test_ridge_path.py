@@ -37,26 +37,30 @@ def test_default_grid(arrays: tuple[np.ndarray, np.ndarray]) -> None:
 def test_supplied_alphas_are_sorted_decreasing(
     arrays: tuple[np.ndarray, np.ndarray],
 ) -> None:
-    path = RidgePath(Poisson(), alphas=[1.0, 100.0, 10.0]).fit(*arrays)
+    path = RidgePath(Poisson()).fit(*arrays, alphas=[1.0, 100.0, 10.0])
     assert path.alphas_ is not None
     np.testing.assert_array_equal(path.alphas_, [100.0, 10.0, 1.0])
 
 
 @pytest.mark.parametrize("alphas", [[], [1.0, 0.0], [1.0, -2.0]])
-def test_invalid_alphas_raise(alphas: list[float]) -> None:
+def test_invalid_alphas_raise(
+    arrays: tuple[np.ndarray, np.ndarray], alphas: list[float]
+) -> None:
     with pytest.raises(ValueError, match="positives"):
-        RidgePath(Poisson(), alphas=alphas)
+        RidgePath(Poisson()).fit(*arrays, alphas=alphas)
 
 
 @pytest.mark.parametrize("n_alphas", [1, 0, 2.5, True])
-def test_invalid_n_alphas_raise(n_alphas: object) -> None:
+def test_invalid_n_alphas_raise(
+    arrays: tuple[np.ndarray, np.ndarray], n_alphas: object
+) -> None:
     with pytest.raises(ValueError, match="n_alphas"):
-        RidgePath(Poisson(), n_alphas=n_alphas)  # type: ignore[arg-type]
+        RidgePath(Poisson()).fit(*arrays, n_alphas=n_alphas)  # type: ignore[arg-type]
 
 
 def test_models_match_independent_fits(arrays: tuple[np.ndarray, np.ndarray]) -> None:
     # Warm starts speed up fitting, but must not change the answers.
-    path = RidgePath(Poisson(), n_alphas=10).fit(*arrays, tol=1e-12)
+    path = RidgePath(Poisson()).fit(*arrays, tol=1e-12, n_alphas=10)
     assert path.alphas_ is not None and path.models_ is not None
     for alpha, model in zip(path.alphas_, path.models_):
         independent = GLM(Poisson(), alpha=alpha).fit(*arrays, tol=1e-12)
@@ -112,7 +116,7 @@ def test_default_alphas_skip_zero_eigenvalues(df: pd.DataFrame) -> None:
 
 
 def test_formula_path(df: pd.DataFrame) -> None:
-    path = RidgePath(Poisson(), n_alphas=5).fit(df, formula="y ~ x1 + x2 + C(g)")
+    path = RidgePath(Poisson()).fit(df, formula="y ~ x1 + x2 + C(g)", n_alphas=5)
     assert path.term_columns_ == {
         "x1": ["x1"],
         "x2": ["x2"],
@@ -136,14 +140,14 @@ def test_formula_path(df: pd.DataFrame) -> None:
 
 
 def test_array_path_term_columns(arrays: tuple[np.ndarray, np.ndarray]) -> None:
-    path = RidgePath(Poisson(), n_alphas=5).fit(
-        *arrays, X_names=["Intercept", "a", "b"]
+    path = RidgePath(Poisson()).fit(
+        *arrays, X_names=["Intercept", "a", "b"], n_alphas=5
     )
     assert path.term_columns_ == {"a": ["a"], "b": ["b"]}
 
 
 def test_model_at(arrays: tuple[np.ndarray, np.ndarray]) -> None:
-    path = RidgePath(Poisson(), alphas=[1.0, 10.0]).fit(*arrays)
+    path = RidgePath(Poisson()).fit(*arrays, alphas=[1.0, 10.0])
     assert path.models_ is not None
     assert path.model_at(10.0) is path.models_[0]
     assert path.model_at(1.0) is path.models_[1]
@@ -163,7 +167,7 @@ def test_effective_degrees_of_freedom_gaussian() -> None:
     rng = np.random.default_rng(154)
     X = np.column_stack([np.ones(N), rng.normal(size=(N, 3)) * [1.0, 10.0, 0.1]])
     y = X @ np.array([1.0, 0.5, -0.05, 2.0]) + rng.normal(size=N)
-    path = RidgePath(Gaussian(), n_alphas=10).fit(X, y)
+    path = RidgePath(Gaussian()).fit(X, y, n_alphas=10)
     assert path.alphas_ is not None and path.df_ is not None
     Z = Standardizer("continuous").fit(X).transform(X)[:, 1:]
     Z = Z - Z.mean(axis=0)
@@ -186,9 +190,9 @@ def test_effective_degrees_of_freedom_along_path(df: pd.DataFrame) -> None:
 
 def test_scales(arrays: tuple[np.ndarray, np.ndarray]) -> None:
     X, y = arrays
-    path = RidgePath(Poisson(), n_alphas=5).fit(X, y)
+    path = RidgePath(Poisson()).fit(X, y, n_alphas=5)
     np.testing.assert_array_equal(
         path.scales_, Standardizer("continuous").fit(X).scales_
     )
-    unstandardized = RidgePath(Poisson(), n_alphas=5, standardize="none").fit(X, y)
+    unstandardized = RidgePath(Poisson(), standardize="none").fit(X, y, n_alphas=5)
     np.testing.assert_array_equal(unstandardized.scales_, 1.0)

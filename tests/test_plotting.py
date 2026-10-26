@@ -35,8 +35,8 @@ def df() -> pd.DataFrame:
 
 @pytest.fixture
 def path(df: pd.DataFrame) -> RidgePath:
-    return RidgePath(Poisson(), n_alphas=N_ALPHAS).fit(
-        df, formula="y ~ x1 + x2 + C(g) + x1:C(g)"
+    return RidgePath(Poisson()).fit(
+        df, formula="y ~ x1 + x2 + C(g) + x1:C(g)", n_alphas=N_ALPHAS
     )
 
 
@@ -141,7 +141,7 @@ def test_horizontal_axes(path: RidgePath, ax: Axes) -> None:
 
 def test_coefficient_scales(df: pd.DataFrame, ax: Axes) -> None:
     rescaled = df.assign(x1=1000 * df["x1"])
-    path = RidgePath(Poisson(), n_alphas=N_ALPHAS).fit(rescaled, formula="y ~ x1")
+    path = RidgePath(Poisson()).fit(rescaled, formula="y ~ x1", n_alphas=N_ALPHAS)
     assert path.scales_ is not None
     coefficients = path.coefficient_table()["x1"].to_numpy()
     plot_coefficient_paths(ax, path)
@@ -156,8 +156,11 @@ def test_coefficient_scales(df: pd.DataFrame, ax: Axes) -> None:
 
 def test_array_path_selects_by_name(df: pd.DataFrame, ax: Axes) -> None:
     X = np.column_stack([np.ones(N), df["x1"], df["x2"]])
-    path = RidgePath(Poisson(), n_alphas=N_ALPHAS).fit(
-        X, df["y"].to_numpy().astype(np.float64), X_names=["Intercept", "a", "b"]
+    path = RidgePath(Poisson()).fit(
+        X,
+        df["y"].to_numpy().astype(np.float64),
+        X_names=["Intercept", "a", "b"],
+        n_alphas=N_ALPHAS,
     )
     plot_coefficient_paths(ax, path, "b")
     assert legend_labels(ax) == ["b"]
@@ -187,8 +190,11 @@ def test_select_terms_with_the_models_formula(path: RidgePath, ax: Axes) -> None
 
 @pytest.fixture
 def cv(df: pd.DataFrame) -> RidgePathCV:
-    return RidgePathCV(Poisson(), n_alphas=N_ALPHAS, n_folds=5).fit(
-        df, formula="y ~ x1 + x2 + C(g)", rng=np.random.default_rng(154)
+    return RidgePathCV(Poisson(), n_folds=5).fit(
+        df,
+        formula="y ~ x1 + x2 + C(g)",
+        rng=np.random.default_rng(154),
+        n_alphas=N_ALPHAS,
     )
 
 

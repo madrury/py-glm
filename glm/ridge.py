@@ -70,13 +70,6 @@ class RidgePath:
     family: ExponentialFamily
         The exponential family used in the models.
 
-    alphas: sequence of positive floats, optional
-        The penalty strengths to fit, in any order. By default, a grid is
-        chosen from the data; see default_alphas.
-
-    n_alphas: integer, at least 2
-        The number of penalty strengths in the default grid.
-
     standardize: "none", "continuous", or "all"
         Which columns to standardize before fitting; see GLM.
 
@@ -115,15 +108,10 @@ class RidgePath:
     def __init__(
         self,
         family: ExponentialFamily,
-        alphas: Sequence[float] | None = None,
-        n_alphas: int = 100,
         standardize: Standardization = "continuous",
     ) -> None:
         check_standardization(standardize)
-        check_alphas(alphas, n_alphas)
         self.family = family
-        self.alphas = alphas
-        self.n_alphas = n_alphas
         self.standardize: Standardization = standardize
         self.alphas_: AlphaGrid | None = None
         self.models_: list[GLM] | None = None
@@ -133,7 +121,7 @@ class RidgePath:
 
     def __repr__(self) -> str:
         return (
-            f"{type(self).__name__}(family={self.family!r}, n_alphas={self.n_alphas!r}, "
+            f"{type(self).__name__}(family={self.family!r}, "
             f"standardize={self.standardize!r})"
         )
 
@@ -148,14 +136,28 @@ class RidgePath:
         offset: Offset | None = None,
         frequency_weights: FrequencyWeights | None = None,
         precision_weights: PrecisionWeights | None = None,
+        alphas: Sequence[float] | None = None,
+        n_alphas: int = 100,
         max_iter: int = 100,
         tol: float = 0.1**5,
         validate_intercept: bool = True,
     ) -> Self:
         """Fit a model for each penalty strength.
 
-        The arguments are as for GLM.fit.
+        The arguments are as for GLM.fit, except alphas and n_alphas.
+
+        Parameters
+        ----------
+
+        alphas: sequence of positive floats, optional
+            The penalty strengths to fit, in any order. By default, a grid is
+            chosen from the data; see default_alphas.
+
+        n_alphas: integer, at least 2
+            The number of penalty strengths in the default grid. Ignored when
+            alphas are supplied.
         """
+        check_alphas(alphas, n_alphas)
         # Encode the data once. Any positive alpha gives the same encoding.
         template = GLM(self.family, alpha=1.0, standardize=self.standardize)
         design, response = template._prepare_data(X, y, formula, X_names, y_name)
@@ -165,22 +167,23 @@ class RidgePath:
         precision_weights = check_weights(
             "precision_weights", response, precision_weights
         )
-        if self.alphas is None:
-            alphas = default_alphas(
+        grid: AlphaGrid
+        if alphas is None:
+            grid = default_alphas(
                 self.family,
                 design,
                 response,
                 frequency_weights=frequency_weights,
                 precision_weights=precision_weights,
                 standardize=self.standardize,
-                n_alphas=self.n_alphas,
+                n_alphas=n_alphas,
             )
         else:
-            alphas = np.sort(np.asarray(self.alphas, dtype=np.float64))[::-1]
+            grid = np.sort(np.asarray(alphas, dtype=np.float64))[::-1]
 
         models: list[GLM] = []
         warm_start: CoefficientVector | None = None
-        for alpha in alphas:
+        for alpha in grid:
             model = GLM(self.family, alpha=float(alpha), standardize=self.standardize)
             model.fit(
                 design,
@@ -199,7 +202,7 @@ class RidgePath:
             models.append(model)
             warm_start = model.coef_
 
-        self.alphas_ = alphas
+        self.alphas_ = grid
         self.models_ = models
         self.term_columns_ = _term_columns(template, design)
         # This is intentionally a little wasteful, since we've already
@@ -212,7 +215,7 @@ class RidgePath:
         observation_weights: ObservationWeights = frequency_weights * precision_weights
         self.df_ = _effective_degrees_of_freedom(
             models,
-            alphas,
+            grid,
             design,
             standardizer.transform(design),
             np.zeros(design.shape[0]) if offset is None else offset,
@@ -293,13 +296,6 @@ class RidgePathCV:
     family: ExponentialFamily
         The exponential family used in the models.
 
-    alphas: sequence of positive floats, optional
-        The penalty strengths to fit, in any order. By default, a grid is
-        chosen from the full data; see default_alphas.
-
-    n_alphas: integer, at least 2
-        The number of penalty strengths in the default grid.
-
     n_folds: integer, at least 2
         The number of folds to split the observations into.
 
@@ -342,17 +338,12 @@ class RidgePathCV:
     def __init__(
         self,
         family: ExponentialFamily,
-        alphas: Sequence[float] | None = None,
-        n_alphas: int = 100,
         n_folds: int = 10,
         standardize: Standardization = "continuous",
     ) -> None:
         check_standardization(standardize)
-        check_alphas(alphas, n_alphas)
         check_integer_at_least("n_folds", n_folds, 2)
         self.family = family
-        self.alphas = alphas
-        self.n_alphas = n_alphas
         self.n_folds = n_folds
         self.standardize: Standardization = standardize
         self.alphas_: AlphaGrid | None = None
@@ -366,7 +357,7 @@ class RidgePathCV:
 
     def __repr__(self) -> str:
         return (
-            f"{type(self).__name__}(family={self.family!r}, n_alphas={self.n_alphas!r}, "
+            f"{type(self).__name__}(family={self.family!r}, "
             f"n_folds={self.n_folds!r}, standardize={self.standardize!r})"
         )
 
@@ -381,6 +372,8 @@ class RidgePathCV:
         offset: Offset | None = None,
         frequency_weights: FrequencyWeights | None = None,
         precision_weights: PrecisionWeights | None = None,
+        alphas: Sequence[float] | None = None,
+        n_alphas: int = 100,
         max_iter: int = 100,
         tol: float = 0.1**5,
         validate_intercept: bool = True,
@@ -388,10 +381,20 @@ class RidgePathCV:
     ) -> Self:
         """Fit the full path, and cross-validate it.
 
-        The arguments are the same as in GLM.fit, except rng.
+        The arguments are the same as in GLM.fit, except alphas, n_alphas and
+        rng.
 
         Parameters
         ----------
+
+        alphas: sequence of positive floats, optional
+            The penalty strengths to fit, in any order. By default, a grid is
+            chosen from the full data; see default_alphas. Every fold's path is
+            fit over the same grid.
+
+        n_alphas: integer, at least 2
+            The number of penalty strengths in the default grid. Ignored when
+            alphas are supplied.
 
         frequency_weights: array, shape (n_samples, )
             How many identical observations each row stands for, as for
@@ -404,12 +407,7 @@ class RidgePathCV:
             The generator to split the observations into folds with. Pass one
             to make the folds reproducible.
         """
-        path = RidgePath(
-            self.family,
-            alphas=self.alphas,
-            n_alphas=self.n_alphas,
-            standardize=self.standardize,
-        ).fit(
+        path = RidgePath(self.family, standardize=self.standardize).fit(
             X,
             y,
             formula,
@@ -418,12 +416,14 @@ class RidgePathCV:
             offset=offset,
             frequency_weights=frequency_weights,
             precision_weights=precision_weights,
+            alphas=alphas,
+            n_alphas=n_alphas,
             max_iter=max_iter,
             tol=tol,
             validate_intercept=validate_intercept,
         )
         assert path.alphas_ is not None and path.models_ is not None
-        alphas = path.alphas_
+        grid = path.alphas_
         template = path.models_[0]
         response = template.response_vector(X, y)
         frequency_weights = check_weights(
@@ -444,7 +444,7 @@ class RidgePathCV:
             _generator(rng),
         )
         fold_weights = np.empty(self.n_folds)
-        fold_deviances = np.empty((self.n_folds, len(alphas)))
+        fold_deviances = np.empty((self.n_folds, len(grid)))
         for k, held_out_frequency_weights in enumerate(folds):
             training_frequency_weights = frequency_weights - held_out_frequency_weights
             training_rows = np.flatnonzero(training_frequency_weights > 0)
@@ -454,9 +454,7 @@ class RidgePathCV:
                 * precision_weights[held_out_rows]
             )
             fold_weights[k] = np.sum(held_out_weights)
-            fold_path = RidgePath(
-                self.family, alphas=list(alphas), standardize=self.standardize
-            ).fit(
+            fold_path = RidgePath(self.family, standardize=self.standardize).fit(
                 _take_rows(X, training_rows),
                 None if y is None else y[training_rows],
                 formula,
@@ -465,6 +463,7 @@ class RidgePathCV:
                 offset=offset[training_rows],
                 frequency_weights=training_frequency_weights[training_rows],
                 precision_weights=precision_weights[training_rows],
+                alphas=list(grid),
                 max_iter=max_iter,
                 tol=tol,
                 validate_intercept=validate_intercept,
@@ -492,14 +491,14 @@ class RidgePathCV:
         )
         best = np.argmin(cv_deviance_mean)
 
-        self.alphas_ = alphas
+        self.alphas_ = grid
         self.path_ = path
         self.fold_frequency_weights_ = folds
         self.fold_weights_ = fold_weights
         self.fold_deviances_ = fold_deviances
         self.cv_deviance_ = cv_deviance_mean
         self.cv_standard_error_ = cv_deviance_standard_error
-        self.alpha_min_ = float(alphas[best])
+        self.alpha_min_ = float(grid[best])
         return self
 
     @property
