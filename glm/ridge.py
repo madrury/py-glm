@@ -337,11 +337,6 @@ class RidgePathCV:
 
     alpha_min_: float
         The penalty strength with the smallest cv_deviance_.
-
-    alpha_1se_: float
-        The largest penalty strength whose cv_deviance_ is within one standard
-        error of the smallest: the simplest model that cross-validation can't
-        distinguish from the model with minimal held-out deviance.
     """
 
     def __init__(
@@ -368,7 +363,6 @@ class RidgePathCV:
         self.cv_deviance_: CVDeviances | None = None
         self.cv_standard_error_: CVDeviances | None = None
         self.alpha_min_: float | None = None
-        self.alpha_1se_: float | None = None
 
     def __repr__(self) -> str:
         return (
@@ -497,9 +491,6 @@ class RidgePathCV:
             fold_deviances, fold_weights, cv_deviance_mean
         )
         best = np.argmin(cv_deviance_mean)
-        threshold = cv_deviance_mean[best] + cv_deviance_standard_error[best]
-        # The alphas decrease, so the first within the threshold is the largest.
-        within = np.flatnonzero(cv_deviance_mean <= threshold)[0]
 
         self.alphas_ = alphas
         self.path_ = path
@@ -509,7 +500,6 @@ class RidgePathCV:
         self.cv_deviance_ = cv_deviance_mean
         self.cv_standard_error_ = cv_deviance_standard_error
         self.alpha_min_ = float(alphas[best])
-        self.alpha_1se_ = float(alphas[within])
         return self
 
     @property
@@ -518,13 +508,6 @@ class RidgePathCV:
         if self.path_ is None or self.alpha_min_ is None:
             raise ValueError("The cross-validation has not been fit.")
         return self.path_.model_at(self.alpha_min_)
-
-    @property
-    def model_1se_(self) -> GLM:
-        """The model, fit to the full data, at alpha_1se_."""
-        if self.path_ is None or self.alpha_1se_ is None:
-            raise ValueError("The cross-validation has not been fit.")
-        return self.path_.model_at(self.alpha_1se_)
 
 
 def fold_frequency_weights(

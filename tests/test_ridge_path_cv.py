@@ -171,24 +171,14 @@ def test_full_path_matches_ridge_path(arrays: tuple[np.ndarray, np.ndarray]) -> 
     np.testing.assert_allclose(cv.path_.coefficient_table(), path.coefficient_table())
 
 
-def test_one_standard_error_rule(df: pd.DataFrame) -> None:
+def test_alpha_min_has_the_smallest_cv_deviance(df: pd.DataFrame) -> None:
     cv = RidgePathCV(Poisson(), n_alphas=30, n_folds=N_FOLDS).fit(
         df, formula="y ~ x1 + x2 + C(g)", rng=np.random.default_rng(154)
     )
-    assert (
-        cv.alphas_ is not None
-        and cv.cv_deviance_ is not None
-        and cv.cv_standard_error_ is not None
-    )
+    assert cv.alphas_ is not None and cv.cv_deviance_ is not None
     best = int(np.argmin(cv.cv_deviance_))
     assert cv.alpha_min_ == cv.alphas_[best]
-    # The most penalized model within a standard error of the best.
-    threshold = cv.cv_deviance_[best] + cv.cv_standard_error_[best]
-    within = cv.alphas_[cv.cv_deviance_ <= threshold]
-    assert cv.alpha_1se_ == within.max()
-    assert cv.alpha_1se_ >= cv.alpha_min_
     assert cv.model_min_.alpha == cv.alpha_min_
-    assert cv.model_1se_.alpha == cv.alpha_1se_
 
 
 def test_cv_deviance_rises_when_overpenalized(df: pd.DataFrame) -> None:

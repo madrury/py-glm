@@ -198,18 +198,18 @@ def test_cv_returns_axes_and_creates_no_figures(cv: RidgePathCV, ax: Axes) -> No
     assert plt.get_fignums() == figures
 
 
-def test_cv_plots_mean_deviance_and_chosen_alphas(cv: RidgePathCV, ax: Axes) -> None:
+def test_cv_plots_mean_deviance_and_chosen_alpha(cv: RidgePathCV, ax: Axes) -> None:
     plot_cv_deviance(ax, cv)
     curve = path_lines(ax)
     assert len(curve) == 1
     np.testing.assert_array_equal(curve[0].get_xdata(), cv.alphas_)
     np.testing.assert_array_equal(curve[0].get_ydata(), cv.cv_deviance_)
     assert ax.get_xscale() == "log"
-    # A vertical line at each chosen alpha.
+    # A vertical line at the chosen alpha.
     verticals = {
         line.get_xdata()[0] for line in ax.get_lines() if len(line.get_xdata()) == 2
     }
-    assert verticals == {cv.alpha_min_, cv.alpha_1se_}
+    assert verticals == {cv.alpha_min_}
 
 
 def test_cv_plots_against_degrees_of_freedom(cv: RidgePathCV, ax: Axes) -> None:

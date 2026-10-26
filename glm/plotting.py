@@ -133,9 +133,8 @@ def plot_cv_deviance(
     """Plot the cross-validated deviance as the penalty varies.
 
     The held-out deviance per unit weight, averaged over the folds, is drawn
-    with a band of one standard error either side. Dashed vertical lines mark
-    the penalty with the smallest deviance, alpha_min_, and the largest within
-    one standard error of it, alpha_1se_.
+    with a band of one standard error either side. A dashed vertical line marks
+    the penalty with the smallest deviance, alpha_min_.
 
     Parameters
     ----------
@@ -177,14 +176,10 @@ def plot_cv_deviance(
         color="C0",
         alpha=0.2,
     )
-    for alpha, label, linestyle in [
-        (cv.alpha_min_, "Minimum", "--"),
-        (cv.alpha_1se_, "One standard error", ":"),
-    ]:
-        # Indexing an array gives a numpy scalar, which the stubs type as an
-        # array; axvline wants a float.
-        position = float(horizontal[np.flatnonzero(cv.alphas_ == alpha)[0]])
-        ax.axvline(position, color="grey", linestyle=linestyle, label=label)
+    # Indexing an array gives a numpy scalar, which the stubs type as an array;
+    # axvline wants a float.
+    position = float(horizontal[np.flatnonzero(cv.alphas_ == cv.alpha_min_)[0]])
+    ax.axvline(position, color="grey", linestyle="--", label="Minimum")
     if x == "log_alpha":
         ax.set_xscale("log")
         ax.set_xlabel(r"$\alpha$")
