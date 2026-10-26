@@ -168,7 +168,7 @@ def plot_cv_deviance(
         raise ValueError("The cross-validation has not been fit.")
 
     horizontal = cv.alphas_ if x == "log_alpha" else cv.path_.df_
-    ax.plot(horizontal, cv.cv_deviance_, color="C0", marker=".")
+    ax.plot(horizontal, cv.cv_deviance_, color="C0", marker=".", label="Mean Deviance")
     ax.fill_between(
         horizontal,
         cv.cv_deviance_ - cv.cv_standard_error_,

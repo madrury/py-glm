@@ -115,10 +115,20 @@ def test_summary_frame_layout(formula_model: GLM) -> None:
     ]
 
 
-def test_regularized_summary_frame_has_no_tests() -> None:
+def test_regularized_summary_frame_has_only_estimates() -> None:
     sim = make_frame(Poisson(), n_samples=N, rng=np.random.default_rng(154))
     model = GLM(Poisson(), alpha=1.0).fit(sim.data, formula=sim.formula)
-    assert list(model.summary_frame().columns) == ["estimate", "std error"]
+    assert list(model.summary_frame().columns) == ["estimate"]
+
+
+@pytest.mark.parametrize(
+    "attribute", ["coef_covariance_matrix_", "coef_standard_error_", "p_values_"]
+)
+def test_regularized_inference_raises(attribute: str) -> None:
+    sim = make_frame(Poisson(), n_samples=N, rng=np.random.default_rng(154))
+    model = GLM(Poisson(), alpha=1.0).fit(sim.data, formula=sim.formula)
+    with pytest.raises(ValueError, match="not available for regularized models"):
+        getattr(model, attribute)
 
 
 @pytest.mark.parametrize("level", [0.0, 1.0, 1.5])

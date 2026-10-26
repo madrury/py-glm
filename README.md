@@ -243,8 +243,9 @@ ridge_model.fit(X, y)
 ```
 
 The penalty is `alpha` times the sum of the squared coefficients, excluding the
-intercept, if the model has one. P-values are not available for regularized
-models.
+intercept, if the model has one. Standard errors, covariances and p-values are
+not available for regularized models, and `summary_frame` gives only the
+estimates.
 
 **Standardization:** A ridge penalty depends on the units of the predictors:
 measuring a predictor in kilometres rather than metres makes its coefficient

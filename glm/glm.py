@@ -55,6 +55,12 @@ NON_FINITE_ESTIMATES_MESSAGE = (
     "when the maximum likelihood estimate does not exist, e.g. a binary response "
     "that is all zeros or all ones, or one perfectly separated by the predictors."
 )
+REGULARIZED_INFERENCE_MESSAGE = (
+    "Standard errors, covariances and p-values are not available for "
+    "regularized models: the penalty biases the estimates, so intervals built "
+    "from their sampling variance don't cover the true coefficients. Use the "
+    "bootstrap (see Simulation) for the variability of a ridge fit."
+)
 
 
 @dataclass(frozen=True)
@@ -140,7 +146,7 @@ class GLM:
 
     The model is fit to data using the well known Fisher Scoring algorithm,
     which is a Quasi Newton's method where the hessian is replaced with its
-    expectation with respect to the assumed distribution of Y. This expected
+    expectation with respect to the assumed distribution of Y | X. This expected
     hessian is called the Fisher Information in statistical literature. When
     using a canonical link function for an exponential family, this reduces to
     exactly Newton's method and thus has quadratic convergence guarentees. When
@@ -204,7 +210,8 @@ class GLM:
     information_matrix_: array, shape (n_features, n_features)
         The estimated information matrix XᵗWX, evaluated at the fit
         coefficients. This is the Fisher information times the dispersion, so
-        the coefficients' covariance is dispersion_ times its inverse.
+        for an unpenalized fit, the coefficients' covariance is dispersion_
+        times its inverse.
 
     n: float, positive
         The number of observations the model was fit to: the sum of the
@@ -727,6 +734,11 @@ class GLM:
 
     @property
     def coef_covariance_matrix_(self) -> CovarianceMatrix:
+        """The estimated covariance matrix of the coefficients, dispersion_
+        times the inverse of information_matrix_. Not available for
+        regularized models."""
+        if self._is_regularized():
+            raise ValueError(REGULARIZED_INFERENCE_MESSAGE)
         if self.information_matrix_ is None:
             raise ValueError(
                 "Parameter covariances can only be estimated for a fit model."
@@ -735,6 +747,8 @@ class GLM:
 
     @property
     def coef_standard_error_(self) -> StandardErrorVector:
+        """The estimated standard errors of the coefficients. Not available for
+        regularized models."""
         return np.sqrt(np.diag(self.coef_covariance_matrix_))
 
     @property
@@ -746,8 +760,8 @@ class GLM:
         normal if not (see ExponentialFamily.coefficient_test). summary_frame
         gives the p-values along with the coefficients' names.
         """
-        if self.alpha != 0:
-            raise ValueError("p-values are not available for regularized models.")
+        if self._is_regularized():
+            raise ValueError(REGULARIZED_INFERENCE_MESSAGE)
         if self.coef_ is None:
             raise ValueError("p-values can only be computed for a fit model.")
         statistics = self.coef_ / self.coef_standard_error_
@@ -765,8 +779,8 @@ class GLM:
         as the family's reference distribution is Student's t or the standard
         normal; see ExponentialFamily.coefficient_test), its two tailed
         p-value, and the bounds of a confidence interval. For regularized
-        models, only the estimates and standard errors are given, as the
-        tests and intervals aren't valid.
+        models, only the estimates are given, as the standard errors, tests
+        and intervals aren't valid (see coef_covariance_matrix_).
 
         Parameters
         ----------
@@ -779,13 +793,13 @@ class GLM:
             raise ValueError("p-values can only be computed for a fit model.")
         if not 0 < level < 1:
             raise ValueError(f"level must be between 0 and 1, got {level}.")
+        if self._is_regularized():
+            return pd.DataFrame({"estimate": self.coef_}, index=self.X_names)
         standard_errors = self.coef_standard_error_
         frame = pd.DataFrame(
             {"estimate": self.coef_, "std error": standard_errors},
             index=self.X_names,
         )
-        if self._is_regularized():
-            return frame
         test: TestDistribution = self.family.coefficient_test(
             residual_df=self.n - self.p
         )
