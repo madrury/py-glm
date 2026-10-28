@@ -91,9 +91,9 @@ def make_regression(
 
     The design matrix has an intercept column (unless intercept=False),
     followed by n_uncorrelated independent standard normal predictors, then
-    n_correlated predictors with a random correlation structure, each
-    standardized to unit variance, and then indicator columns for each
-    categorical variable's levels other than its first, reference, level.
+    n_correlated correlated predictors, each standardized to unit variance,
+    and then indicator columns for each categorical variable's levels other
+    than its first, reference, level.
     Coefficients are drawn uniformly from coef_range, then
     n_zero_coefficients of them, chosen at random, are set to zero. The
     response is drawn from the family's conditional distribution,
@@ -115,8 +115,8 @@ def make_regression(
     correlation: float, optional
         The correlation between each pair of correlated predictors, between
         -1 / (n_correlated - 1) and 1. By default, the correlated predictors
-        have a random correlation structure, which can range from almost
-        uncorrelated to almost collinear.
+        have a random correlation structure, which is usually close to
+        collinear in some direction.
 
     categorical: sequence, optional
         For each categorical variable, its levels: their number, each equally
@@ -338,13 +338,15 @@ def _simulate(
     if n_correlated > 0:
         if correlation is None:
             # Mixing independent normals with a matrix A of standard normal
-            # entries gives predictors with covariance AᵗA, a random
-            # correlation structure.
+            # entries gives predictors with covariance AᵗA. After the
+            # standardization below, a random correlation structure.
             mixing = rng.normal(size=(n_correlated, n_correlated))
         else:
-            # Mixing with the Cholesky factor L of the equicorrelation matrix C,
-            # with ones on the diagonal and the desired correlation elsewhere,
-            # gives predictors with covariance LᵗL = C.
+            # The equicorrelation matrix C has ones on the diagonal and the
+            # desired correlation elsewhere. Mixing with Lᵗ, for its Cholesky
+            # factor L, gives predictors with covariance LLᵗ = C. We fill ones
+            # on the diagonal of C, so that the variance of each predictor is
+            # 1.0, and the covariance is also a correlation.
             C = np.full((n_correlated, n_correlated), correlation)
             np.fill_diagonal(C, 1.0)
             mixing = np.linalg.cholesky(C).T
