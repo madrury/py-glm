@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "py-glm"
-version = "0.1.0"
+version = "0.2.0"
 description = "Fitting, inspecting, and evaluating generalized linear models."
 readme = "README.md"
 license = "BSD-3-Clause"
@@ -20,6 +20,11 @@ dependencies = [
     "scipy>=1.14.1",
 ]
 
+[project.optional-dependencies]
+# Plotting functions only need matplotlib for their axes; install it with
+# pip install "py-glm[plot]".
+plot = ["matplotlib>=3.8"]
+
 [project.urls]
 Repository = "https://github.com/madrury/py-glm"
 
@@ -31,7 +36,6 @@ dev = [
     "mypy>=2.3.1",
     "pandas-stubs>=3.0.5.260914",
     "pytest",
-    "scikit-learn",
     "scipy-stubs>=1.18.1.1",
     "statsmodels>=0.14",
 ]
@@ -44,9 +48,6 @@ testpaths = ["tests"]
 
 [tool.mypy]
 files = ["glm"]
-# Not yet annotated: glmnet.py is out of scope for the current modernization
-# pass.
-exclude = ["glm/glmnet\\.py$"]
 strict = true
 
 [[tool.mypy.overrides]]

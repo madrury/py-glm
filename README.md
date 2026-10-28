@@ -1,9 +1,9 @@
 # py-glm: Generalized Linear Models in Python
 
 `py-glm` is a library for fitting, inspecting, and simulating from generalized
-linear models in Python. Models are fit with Fisher scoring, and support model
-formulas, offsets, sample weights, ridge regularization, and bootstrap
-resampling.
+linear models in Python. Models are fit with Fisher scoring, and support R-style
+model formulas, offsets, frequency and precision weights, ridge regularization,
+and bootstrap resampling.
 
 ## Installation
 
@@ -13,6 +13,28 @@ GitHub:
 ```
 pip install git+https://github.com/madrury/py-glm.git
 ```
+
+The plotting functions need `matplotlib`, which you can install along with
+`py-glm` as the `plot` extra:
+
+```
+pip install "py-glm[plot] @ git+https://github.com/madrury/py-glm.git"
+```
+
+## Tutorials
+
+The `examples` directory has a sequence of tutorial notebooks, which cover the
+library in more depth than this README:
+
+1. [A Tour of the Exponential Families](examples/01-families.ipynb)
+2. [Formulas and Categorical Data](examples/02-formulas.ipynb)
+3. [Inference and Bootstraps](examples/03-inference.ipynb)
+4. [Frequency and Precision Weights](examples/04-weights.ipynb)
+5. [Ridge Regularization](examples/05-regularization.ipynb)
+
+They use simulated data from `glm.datasets`, whose `make_regression` and
+`make_frame` simulate a dataset from a GLM, with various options for predictor
+types and dependency structures.
 
 ## Fitting Models
 
@@ -24,9 +46,15 @@ import pandas as pd
 
 rng = np.random.default_rng(154)
 N = 1000
-df = pd.DataFrame({"Moshi": rng.uniform(-1, 1, N), "SwimSwim": rng.uniform(-1, 1, N)})
+df = pd.DataFrame({
+    "Moshi": rng.uniform(-1, 1, N),
+    "SwimSwim": rng.uniform(-1, 1, N)
+})
 # Logistic style data.
-df["y"] = rng.binomial(1, 1 / (1 + np.exp(-(1 - 2 * df["Moshi"] + df["SwimSwim"]))))
+df["y"] = rng.binomial(
+    1,
+    1 / (1 + np.exp(-(1 - 2 * df["Moshi"] + df["SwimSwim"])))
+)
 
 X = np.column_stack([np.ones(N), df["Moshi"], df["SwimSwim"]])
 y = df["y"].to_numpy()
@@ -67,7 +95,13 @@ ones), and `fit` raises an error if it isn't. To fit a model without an intercep
 pass `validate_intercept=False`. Model formulas, below, include an intercept
 automatically.
 
-Offsets and sample weights are supported when fitting:
+**Rank-deficient designs:** Unpenalized fits raise an error if the design
+matrix's columns are linearly dependent, as when a predictor is duplicated, or a
+spline basis includes the intercept, since the coefficients then aren't uniquely
+identified. Ridge models do not require linear independence.
+
+**Offsets and Weights:**
+Offsets and weights are supported when fitting:
 
 ```python
 exposure = rng.uniform(1, 10, N)
@@ -75,15 +109,45 @@ exposure = rng.uniform(1, 10, N)
 y_count = rng.poisson(exposure * np.exp(0.5 + 0.3 * df["Moshi"]))
 poisson_model.fit(X, y_count, offset=np.log(exposure))
 
-sample_weights = rng.uniform(0, 2, N)
-weighted_model = GLM(family=Bernoulli()).fit(X, y, sample_weights=sample_weights)
+counts = rng.integers(1, 5, N).astype(np.float64)
+weighted_model = GLM(family=Bernoulli()).fit(X, y, frequency_weights=counts)
 ```
 
-**Missing values:** `fit` and `predict` raise an error if the data contain
-missing values, rather than silently dropping rows, which would misalign the
-data with any offsets, sample weights, or predictions. Dealing with missing
-values is thus the user's responsibility: drop or impute missing values before
-fitting models.
+**Weights:** There are two kinds of weights, and they mean
+*different things*.
+
+* `frequency_weights` say how many identical observations each row stands
+for, as when repeated records are stored once with a count. Using
+`frequency_weights` in a fit is exactly equivalent to fitting to the expanded
+data.
+* `precision_weights` say how much more precise each row's response is than a
+single observation's: its variance is divided by the weight. They're the natural
+weights for a response that's an average, or proportion. For example, a binomial
+response may be given as proportions of successes, weighted by their count of
+trials:
+
+```python
+trials = rng.integers(5, 20, N).astype(np.float64)
+successes = rng.binomial(
+    trials.astype(int),
+    1 / (1 + np.exp(-(X @ [0.5, -1.0, 0.5])))
+)
+proportions_model = GLM(family=Bernoulli()).fit(
+    X, successes / trials, precision_weights=trials
+)
+```
+
+Given the same values, both types of weights give the same coefficients, but only
+frequency weights count for additional observations. For families that estimate
+a dispersion, the two kinds of weights give different dispersions and standard
+errors. (R's `glm` calls precision weights *prior weights*.) The two kinds can
+be combined.
+
+**Missing values:** `fit`, `predict`, and `score` raise an error if the data
+contain any missing or infinite values (`np.nan`, `np.inf`, `pd.NA`, `None`),
+rather than silently dropping rows, which would misalign the data with any
+offsets, weights, or predictions. Dealing with missing values is thus the
+user's responsibility: drop or impute missing values before fitting models.
 
 ## Model Formulas
 
@@ -96,12 +160,20 @@ formula_model.fit(df, formula="y ~ Moshi + SwimSwim")
 ```
 
 Formulas use the [formulaic](https://matthewwardrop.github.io/formulaic/)
-syntax, including categorical variables, e.g. `C(group)`, and transforms, e.g.
-`center(x)`. The model stores what it learned about the formula from the
-training data, such as each categorical variable's levels and the constants
-used by `center`, and uses it to encode any new data, in `predict` and in any
-bootstraps. So, for example, new data containing only some of a variable's
-categories is still encoded with every category's column.
+syntax. Include categorical variables with `C(group)`, and transforms such as
+`center(x)`. For more sophisticated use, consult the `formulaic` documentation
+(and give the library a well-deserved star).
+
+The model stores what it learned about the formula encoding from the training
+data, such as each categorical variable's levels and the constants used by
+`center`. It is then used to encode any new data, such as in `predict` and in any
+bootstraps.
+
+So, for example, new data containing only some of a variable's categories is
+still encoded with every category's column (some columns will be all 0.0s in
+this case). On the other hand, data including an *unseen* category will raise
+(in the case of an unpenalized model), to avoid the silent error of assuming the
+unseen category is equivalent to the reference one.
 
 ## Prediction
 
@@ -112,18 +184,22 @@ logistic_model.predict(X)
 formula_model.predict(df)
 ```
 
-**Note:** There is one major place we deviate from the `sklearn` interface. The
+**Conditional Expectations:**
+There is one major place where we deviate from the `sklearn` convention. The
 `predict` method on a `GLM` object **always** returns an estimate of the
 conditional expectation `E[y | X]`. This is in contrast to `sklearn` behavior
 for classification models, where it returns a class assignment. We make this
 choice so that the `py-glm` library is internally consistent with its use of
-`predict`. If the user would like to infer class assignments from a model, they
-will need to threshold the probability returned by `predict` manually.
+`predict` across all exponential families.
+
+If the user would like to infer class assignments from a classification model,
+they will need to threshold the probability returned by `predict` manually. The
+author considers this best practice anyway.
 
 ## Inference
 
 Once the model is fit, parameter estimates, parameter covariance estimates, and
-p-values from a standard z-test are available:
+Wald test p-values are available:
 
 ```python
 logistic_model.coef_
@@ -132,7 +208,22 @@ logistic_model.coef_standard_error_
 logistic_model.p_values_
 ```
 
-To get a quick summary, use the `summary` method:
+`summary_frame` collects them into a data frame, one row per coefficient, with
+the estimate, its standard error, the test statistic for the null hypothesis
+that the coefficient is zero, its p-value, and a confidence interval:
+
+```python
+formula_model.summary_frame(level=0.95)
+```
+
+The test statistic is compared with:
+
+  - Student's t distribution, with `n - p` degrees of freedom for families that
+  estimate a dispersion parameter (it's labelled `t`)
+  - The standard normal distribution for families that don't estimate a
+  dispersion (labelled `z`)
+
+To print a quick summary, use the `summary` method:
 
 ```python
 formula_model.summary()
@@ -140,12 +231,10 @@ formula_model.summary()
 
 ```
 Bernoulli GLM Model Summary.
-================================================
-Name          Parameter Estimate  Standard Error
-------------------------------------------------
-Intercept                   0.98            0.09
-Moshi                      -2.06            0.16
-SwimSwim                    0.99            0.14
+          estimate std error       z p-value lower 95% upper 95%
+Intercept    0.985     0.085  11.539  <0.001     0.817     1.152
+Moshi       -2.063     0.160 -12.888  <0.001    -2.377    -1.750
+SwimSwim     0.993     0.139   7.152  <0.001     0.721     1.265
 ```
 
 ## Simulation
@@ -163,8 +252,10 @@ parametric_boots = sim.parametric_bootstrap(df, n_sim=500)
 non_parametric_boots = sim.non_parametric_bootstrap(df, n_sim=500)
 ```
 
-Each bootstrap returns a list of fit models. For a model fit without a formula,
-pass the response to the non-parametric bootstrap too:
+Each bootstrap returns a list of fit models (a `list[GLM]`).
+
+For a model fit without a formula, pass the response to the non-parametric
+bootstrap as well:
 
 ```python
 Simulation(logistic_model).non_parametric_bootstrap(X, y, n_sim=500)
@@ -186,46 +277,143 @@ standard errors, which remain valid if the model's variance function is wrong.
 
 **Rare categories:** A non-parametric bootstrap resample may contain no rows
 of a rare category, so that its coefficient cannot be estimated, in which case
-the bootstrap raises an error. Consider merging rare categories. Ridge models,
-below, are unaffected.
+the bootstrap raises an error. Ridge models, below, are unaffected, as they do
+not require linear independence of predictors.
 
 ## Regularization
 
 Ridge regression is supported for each model, by passing a regularization
 strength when constructing the model. (The parameter is called `alpha` instead
-of `lambda`, as `lambda` is a reserved word in Python.)
+of the literature convention `lambda`, as `lambda` is a reserved word in
+Python.)
 
 ```python
 ridge_model = GLM(family=Bernoulli(), alpha=1.0)
 ridge_model.fit(X, y)
 ```
 
-The penalty is `alpha` times the sum of the squared coefficients, excluding the
-intercept. P-values are not available for regularized models.
+The ridge penalty is `alpha` times the sum of the (standardized, see below)
+squared coefficients, excluding any intercept. Standard errors, covariances and
+p-values are not available for regularized models, and `summary_frame` gives
+only the estimates.
+
+**Standardization:** A ridge penalty depends on the units of the predictors:
+measuring a predictor in kilometres rather than metres makes its coefficient
+1000 times larger, and it is penalized far more. So by default, penalized models
+standardize the design matrix's continuous columns to zero mean and unit
+standard deviation before fitting, and report coefficients on the original
+scale. The `standardize` argument controls this behaviour:
+
+* `"continuous"` (the default) leaves indicator columns, those of zeros and
+  ones, unscaled: they are already on a natural scale, and scaling them would
+  shrink the coefficients of rare categories *less* than common ones.
+* `"all"` scales indicator columns too, as `glmnet` does.
+* `"none"` fits the columns as given, no scaling.
+
+```python
+glmnet_style_model = GLM(family=Bernoulli(), alpha=1.0, standardize="all")
+```
+
+**Categorical variables:** Penalized formula models encode categorical
+variables with a column for every level, e.g. `C(g)[a]`, `C(g)[b]`, and
+`C(g)[c]`, rather than dropping a reference level. This ensures the penalty
+treats every level alike, and the fit doesn't depend on which level would have
+been the reference.
+
+
+## Ridge Paths
+
+`RidgePath` fits a model at each of a grid of penalty strengths, from the
+largest to the smallest, starting each fit from the previous one's
+coefficients:
+
+```python
+from glm.ridge import RidgePath
+
+df["Group"] = rng.choice(["a", "b", "c"], N)
+path = RidgePath(family=Bernoulli())
+path.fit(df, formula="y ~ Moshi + SwimSwim + C(Group)")
+
+path.alphas_  # 100 penalty strengths, in decreasing order.
+path.models_  # A fit GLM for each.
+path.coefficient_table()  # One row per penalty strength, indexed by alpha.
+path.df_  # The effective degrees of freedom of each model.
+```
+
+Pass `alphas` to `fit` to choose the penalty strengths yourself. By default, the
+grid spans the eigenvalues of the model's (standardized) information matrix:
+ridge shrinks a fit along each eigen-direction by the factor `d / (d + alpha)`,
+for that direction's eigenvalue `d`, so the interesting part of the path happens
+between them (see Hastie, Tibshirani, and Friedman, *The Elements of Statistical
+Learning*, section 3.4.1).
+
+`plot_coefficient_paths` plots the path of every coefficient, grouped by model
+term, so that every level of a categorical variable shares a color. Select
+terms with a formula, plot against the effective degrees of freedom rather
+than `alpha` with `x="df"`, and show coefficients on their original scale,
+rather than standardized, with `scale="original"`:
+
+```python
+import matplotlib.pyplot as plt
+from glm.plotting import plot_coefficient_paths
+
+fig, axes = plt.subplots(1, 2, figsize=(12, 4))
+plot_coefficient_paths(axes[0], path)
+plot_coefficient_paths(axes[1], path, "Moshi + C(Group)", x="df")
+```
+
+Like all of `py-glm`'s plotting functions, `plot_coefficient_paths` draws on
+the axes you pass it and returns them, so you stay in control of the figure's
+layout.
+
+## Choosing the Penalty by Cross-Validation
+
+`RidgePathCV` chooses the penalty strength by cross-validation. It splits the
+data into folds, fits a path to all but each fold in turn over a grid of penalty
+strengths, then scores each model using its deviance on the held-out fold:
+
+```python
+from glm.ridge import RidgePathCV
+from glm.plotting import plot_cv_deviance
+
+cv = RidgePathCV(family=Bernoulli(), n_folds=10)
+cv.fit(df, formula="y ~ Moshi + SwimSwim + C(Group)", rng=np.random.default_rng(1))
+
+cv.alpha_min_  # The penalty strength with the smallest cross-validated deviance.
+cv.model_min_  # The model fit to all the data at that strength.
+
+fig, ax = plt.subplots(figsize=(12, 4))
+plot_cv_deviance(ax, cv, x="df")
+```
+
+With weights, the folds respect what each kind means:
+  - a frequency-weighted row's implied observations are dealt to the folds
+  separately
+  - a precision-weighted row is held out whole.
 
 ## Type Annotations
 
 `py-glm` is fully type annotated, checked with `mypy --strict`, and ships a
 `py.typed` marker, so type checkers will check your code's use of the library.
-The annotations use domain specific type aliases, such as `DesignMatrix`,
-`ResponseVector`, and `CoefficientVector`, defined in `glm.types`.
+The annotations extensively use domain specific type aliases, such as
+`DesignMatrix`, `ResponseVector`, `CoefficientVector`, etc. These are defined
+and documented in `glm.types`.
 
 ## Development
 
 `py-glm` uses [uv](https://docs.astral.sh/uv/) to manage its environment:
 
 ```
-uv sync                  # Install the package and development dependencies.
-uv run pytest            # Run the tests.
-uv run mypy              # Type check.
-uv run black glm tests   # Format.
+uv sync                      # Install the package and development dependencies.
+uv run pytest                # Run the tests.
+uv run mypy                  # Type check.
+uv run black glm tests doc   # Format.
 ```
 
-## References
+## References and Further Reading
 
-* Marlene Müller (2004). [Generalized Linear Models](http://www.marlenemueller.de/publications/HandbookCS.pdf).
-
-## Warning
-
-The `glmnet` code included in `glm.glmnet` is **experimental**, and is not yet
-type annotated. Please use at your own risk.
+* Marlene Müller (2004). [Generalized Linear Models](http://www.marlenemueller.de/publications/HandbookCS.pdf). A friendly overview of GLM theory.
+* Trevor Hastie, Robert Tibshirani, and Jerome Friedman (2009). [*The Elements of Statistical Learning*](https://hastie.su.domains/ElemStatLearn/), 2nd ed. Springer.
+* Peter McCullagh and John Nelder (1989). *Generalized Linear Models*, 2nd ed. Chapman & Hall. The standard reference for the theory. The first Statistics textbook I ever attempted to read (unwise).
+* Peter Dunn and Gordon Smyth (2018). *Generalized Linear Models With Examples in R*. Springer. A readable treatment, includes weights and the Wald, score, and likelihood ratio tests.
+* Bradley Efron and Robert Tibshirani (1993). *An Introduction to the Bootstrap*. Chapman & Hall. The standard introduction to the bootstrap. By two of the great writers in statistics.

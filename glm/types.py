@@ -4,12 +4,16 @@ Shapes are given in terms of n, the number of observations, and p, the number
 of coefficients in the model (including the intercept).
 """
 
-from typing import Any
+from collections.abc import Mapping, Sequence
+from typing import TYPE_CHECKING, Any, Literal
 
 import formulaic
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
+
+if TYPE_CHECKING:
+    from scipy.stats._distn_infrastructure import rv_continuous_frozen
 
 # Model inputs.
 type DesignMatrix = npt.NDArray[np.float64]
@@ -33,8 +37,84 @@ binary outcomes."""
 type Offset = npt.NDArray[np.float64]
 """A known term added to the linear predictor, shape (n,)."""
 
-type SampleWeights = npt.NDArray[np.float64]
-"""Per-observation weights on the deviance, shape (n,)."""
+type FrequencyWeights = npt.NDArray[np.float64]
+"""How many identical observations each row stands for, shape (n,): the data
+have been compressed, and a row with weight 3 is three observations."""
+
+type PrecisionWeights = npt.NDArray[np.float64]
+"""How much more precise each row's response is than a single observation's,
+shape (n,): Var[y | X] = dispersion * V(μ) / weight. Typical when a response
+is an average or proportion over several units, e.g. a proportion of successes
+weighted by its number of trials. R's glm calls these prior weights."""
+
+type ObservationWeights = npt.NDArray[np.float64]
+"""Each row's weight in a fit, its frequency weight times its precision weight,
+shape (n,): the weight on its contribution to the deviance."""
+
+type WorkingWeights = npt.NDArray[np.float64]
+"""The weights W of Fisher scoring's weighted least squares step, shape (n,):
+W = observation weight * (dμ/dη)² / V(μ), so that the information matrix is
+XᵗWX. Unlike the observation weights, they depend on the current fit."""
+
+# Penalized fitting.
+type AlphaGrid = npt.NDArray[np.float64]
+"""Ridge penalty strengths along a regularization path, in decreasing order,
+shape (n_alphas,)."""
+
+type InformationEigenvalues = npt.NDArray[np.float64]
+"""The eigenvalues of an information matrix, which measure how much the data
+say about each of its eigen-directions."""
+
+type EffectiveDegreesOfFreedom = npt.NDArray[np.float64]
+"""The effective degrees of freedom of each model along a regularization
+path, shape (n_alphas,)."""
+
+type FoldFrequencyWeights = npt.NDArray[np.float64]
+"""How many of each row's observations each cross-validation fold holds out,
+shape (n_folds, n): each column sums to the row's frequency weight, so a row
+standing for several observations can be split across folds."""
+
+type FoldWeights = npt.NDArray[np.float64]
+"""The total observation weight held out in each cross-validation fold, shape
+(n_folds,)."""
+
+type FoldDeviances = npt.NDArray[np.float64]
+"""The held-out deviance per unit of observation weight, for each
+cross-validation fold and penalty strength, shape (n_folds, n_alphas)."""
+
+type CVDeviances = npt.NDArray[np.float64]
+"""A cross-validated summary of the held-out deviance per unit of observation
+weight, such as its mean or standard error over the folds, at each penalty
+strength, shape (n_alphas,)."""
+
+type PathAxis = Literal["log_alpha", "df"]
+"""The horizontal axis of a regularization path plot: the penalty strength,
+on a log scale, or the effective degrees of freedom."""
+
+type CoefficientScale = Literal["standardized", "original"]
+"""The scale on which to plot coefficients: standardized, as the penalty
+sees them, or the original scale of the predictors."""
+
+type TermColumns = dict[str, list[str]]
+"""The names of the penalized coefficients belonging to each term of a model,
+e.g. {"C(g)": ["C(g)[a]", "C(g)[b]"]}, used to plot coefficients in groups."""
+
+type CoefficientMask = npt.NDArray[np.bool_]
+"""Which coefficients a penalty applies to, shape (p,): all of them, except
+the intercept when the model has one."""
+
+type Standardization = Literal["none", "continuous", "all"]
+"""Which design matrix columns to standardize before penalized fitting: none;
+continuous columns only, leaving 0/1 indicator columns unscaled; or all
+columns, as glmnet does. The intercept is never standardized."""
+
+type ColumnCenters = npt.NDArray[np.float64]
+"""The value subtracted from each design matrix column when standardizing,
+shape (p,)."""
+
+type ColumnScales = npt.NDArray[np.float64]
+"""The value each centered design matrix column is divided by when
+standardizing, shape (p,)."""
 
 # Model structure.
 type CoefficientVector = npt.NDArray[np.float64]
@@ -55,10 +135,24 @@ type VarianceVector = npt.NDArray[np.float64]
 
 # Inference.
 type DevianceGradient = npt.NDArray[np.float64]
-"""The gradient of the (penalized) deviance with respect to β, shape (p,)."""
+"""The gradient of half the (penalized) deviance with respect to β, shape
+(p,)."""
+
+type ScoringStep = npt.NDArray[np.float64]
+"""A Fisher scoring step, shape (p,): the inverse of the expected Hessian of
+half the (penalized) deviance applied to its gradient, H⁻¹g. It is subtracted
+from the coefficients, and lives in the same coordinates as them, but is a
+change in the coefficients rather than an estimate of them."""
 
 type InformationMatrix = npt.NDArray[np.float64]
-"""The Fisher information matrix, shape (p, p)."""
+"""The information matrix XᵗWX, shape (p, p): the expected Hessian of half the
+deviance. This is the Fisher information times the dispersion φ, so the
+coefficients' covariance is φ times its inverse."""
+
+type DevianceHessian = npt.NDArray[np.float64]
+"""The expected Hessian of half the penalized deviance, shape (p, p): the
+information matrix plus the penalty's Hessian, which Fisher scoring inverts to
+take a step."""
 
 type CovarianceMatrix = npt.NDArray[np.float64]
 """The estimated covariance matrix of the coefficients, shape (p, p)."""
@@ -69,10 +163,27 @@ type StandardErrorVector = npt.NDArray[np.float64]
 type PValueVector = npt.NDArray[np.float64]
 """P-values for the hypotheses that each coefficient is zero, shape (p,)."""
 
+type ReferenceDistribution = "rv_continuous_frozen"
+"""The distribution of a coefficient's test statistic under the hypothesis
+that the coefficient is zero: a frozen scipy.stats distribution."""
+
+type CoefficientSummary = pd.DataFrame
+"""A table of a fit model's coefficients, one row per coefficient: their
+estimates, standard errors, test statistics, p-values, and confidence
+intervals."""
+
+type UnitDeviances = npt.NDArray[np.float64]
+"""Each observation's contribution to the deviance, shape (n,)."""
+
 type Deviance = float
 """A (possibly penalized) deviance."""
 
 # Simulation.
+type CategoricalLevels = int | Sequence[float] | Sequence[str] | Mapping[str, float]
+"""The levels of a simulated categorical variable: their number, each equally
+likely; each level's probability; their names, each equally likely; or each
+named level's probability. The first level is the reference level."""
+
 type SimulatedResponses = npt.NDArray[np.float64]
 """Responses simulated from a fit model, shape (n_sim, n). Each row is one
 simulated response vector, so iterating yields one replicate at a time."""
