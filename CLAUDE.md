@@ -22,6 +22,11 @@
 - **Avoid Greek letters that look like Latin ones.** Prefer standard notation that
   isn't visually ambiguous, e.g. `η` for the linear predictor rather than `ν`
   (which reads as `v`).
+- **"Count of", not "number of".** In prose and docstrings, write "count of
+  trials" rather than "number of trials": it says the quantity is a whole-number
+  tally of things. For quantities that aren't whole numbers, such as a sum of
+  weights or effective degrees of freedom, use neither: name what they are
+  (e.g. "the total frequency weight").
 
 ## Code style
 
