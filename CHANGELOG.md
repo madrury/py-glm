@@ -4,6 +4,7 @@ Notable changes to `py-glm`, newest first. Changes that can alter the results
 of an existing analysis are marked **(changes results)**.
 
 ## 0.2.0
+October 28th 2026.
 
 ### Fixed
 
