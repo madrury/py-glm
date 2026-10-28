@@ -39,9 +39,9 @@ from glm.types import (
 )
 from glm.utils import (
     check_commensurate,
+    check_finite,
     check_full_rank,
     check_intercept,
-    check_no_missing_values,
     check_offset,
     check_standardization,
     check_weights,
@@ -452,8 +452,8 @@ class GLM:
         This method expects X and y to be numpy arrays.
         """
         check_commensurate(X, y)
-        check_no_missing_values("X", X)
-        check_no_missing_values("y", y)
+        check_finite("X", X)
+        check_finite("y", y)
         # Record which optional inputs were given before the defaults below
         # replace the missing ones with their default values.
         fit_inputs = FitInputs(
@@ -467,7 +467,7 @@ class GLM:
         if offset is None:
             offset = np.zeros(X.shape[0])
         check_offset(y, offset)
-        check_no_missing_values("offset", offset)
+        check_finite("offset", offset)
         frequency_weights = check_weights("frequency_weights", y, frequency_weights)
         precision_weights = check_weights("precision_weights", y, precision_weights)
         # Each row's weight weight on its contribution to the deviance.
@@ -604,10 +604,10 @@ class GLM:
                 "Model is not fit, and cannot be used to make predictions."
             )
         X = self.design_matrix(X)
-        check_no_missing_values("X", X)
+        check_finite("X", X)
         η = X @ self.coef_
         if offset is not None:
-            check_no_missing_values("offset", offset)
+            check_finite("offset", offset)
             η = η + offset
         return self.family.inv_link(η)
 
@@ -641,6 +641,7 @@ class GLM:
         deviance: float
             The model's deviance on the data.
         """
+        check_finite("y", y)
         frequency_weights = check_weights("frequency_weights", y, frequency_weights)
         precision_weights = check_weights("precision_weights", y, precision_weights)
         observation_weights: ObservationWeights = frequency_weights * precision_weights

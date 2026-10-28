@@ -70,6 +70,24 @@ def test_fit_with_missing_values_raises(df: pd.DataFrame, column: str) -> None:
         GLM(Poisson()).fit(df, formula="y ~ x + C(g)")
 
 
+@pytest.mark.parametrize("value", [np.inf, -np.inf])
+def test_predict_with_infinite_values_raises(df: pd.DataFrame, value: float) -> None:
+    # Formulaic's na_action doesn't treat infinite values as missing.
+    model = GLM(Poisson()).fit(df, formula="y ~ x + C(g)")
+    new = pd.DataFrame({"x": [1.0, value, 2.0], "g": ["a", "b", "c"]})
+    with pytest.raises(ValueError, match="X contains missing .* or infinite"):
+        model.predict(new)
+
+
+def test_fit_with_transform_making_infinite_values_raises(df: pd.DataFrame) -> None:
+    # Transforms are applied after formulaic's check for missing values, and
+    # log(0) is -inf.
+    df["z"] = np.abs(df["x"])
+    df.loc[3, "z"] = 0.0
+    with pytest.raises(ValueError, match="X contains missing .* or infinite"):
+        GLM(Poisson()).fit(df, formula="y ~ np.log(z) + C(g)")
+
+
 def test_formula_without_response_raises(df: pd.DataFrame) -> None:
     with pytest.raises(ValueError, match="must specify a response"):
         GLM(Poisson()).fit(df, formula="x + C(g)")

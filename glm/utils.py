@@ -27,13 +27,15 @@ def check_intercept(X: DesignMatrix) -> None:
         raise ValueError("Column 0 of X, X[:, 0], is not an intercept.")
 
 
-def has_missing_values(v: npt.NDArray[Any]) -> bool:
-    return bool(np.isnan(v).any())
+def has_non_finite_values(v: npt.NDArray[Any]) -> bool:
+    return bool(not np.isfinite(v).all())
 
 
-def check_no_missing_values(name: str, v: npt.NDArray[Any]) -> None:
-    if has_missing_values(v):
-        raise ValueError(f"{name} contains missing (NaN) values.")
+def check_finite(name: str, v: npt.NDArray[Any]) -> None:
+    """Raise if an array has missing or infinite values, which no fit or
+    prediction can use."""
+    if has_non_finite_values(v):
+        raise ValueError(f"{name} contains missing (NaN) or infinite values.")
 
 
 def has_same_length(v: npt.NDArray[Any], w: npt.NDArray[Any]) -> bool:
@@ -61,7 +63,7 @@ def check_weights(
         return np.ones(y.shape[0])
     if not has_same_length(y, weights):
         raise ValueError(f"{name} and y are not the same length.")
-    check_no_missing_values(name, weights)
+    check_finite(name, weights)
     if np.any(weights < 0):
         raise ValueError(f"{name} must be non-negative.")
     return weights
