@@ -49,9 +49,6 @@ testpaths = ["tests"]
 
 [tool.mypy]
 files = ["glm"]
-# Not yet annotated: glmnet.py is out of scope for the current modernization
-# pass.
-exclude = ["glm/glmnet\\.py$"]
 strict = true
 
 [[tool.mypy.overrides]]

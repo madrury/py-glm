@@ -4,7 +4,7 @@ from typing import Any, get_args
 import numpy as np
 import numpy.typing as npt
 
-from glm.types import Deviance, DesignMatrix, Offset, ResponseVector, Standardization
+from glm.types import DesignMatrix, Offset, ResponseVector, Standardization
 
 STANDARDIZATIONS: tuple[str, ...] = get_args(Standardization.__value__)
 
@@ -45,14 +45,6 @@ def has_same_length(v: npt.NDArray[Any], w: npt.NDArray[Any]) -> bool:
 def check_offset(y: ResponseVector, offset: Offset) -> None:
     if not has_same_length(y, offset):
         raise ValueError("Offset array and y are not the same length.")
-
-
-# Used by glm.glmnet, which is not yet annotated; GLM uses check_weights.
-def check_sample_weights(
-    y: ResponseVector, sample_weights: npt.NDArray[np.float64]
-) -> None:
-    if not has_same_length(y, sample_weights):
-        raise ValueError("Sample weights array and y are not the same length.")
 
 
 def check_weights(
@@ -138,14 +130,6 @@ def check_alphas(alphas: Sequence[float] | None, n_alphas: int) -> None:
         check_integer_at_least("n_alphas", n_alphas, 2)
 
 
-def has_converged(loss: Deviance, loss_prev: Deviance, tol: float) -> bool:
-    if loss_prev == np.inf:
-        return False
-    # The relative change in loss, |loss - loss_prev| / |loss_prev| < tol, written
-    # without division so that a perfect fit, with zero loss, converges.
-    return bool(abs(loss - loss_prev) <= tol * abs(loss_prev))
-
-
 def default_X_names(X: DesignMatrix) -> list[str]:
     n = X.shape[1]
     return ["Intercept"] + [f"X{i}" for i in range(1, n)]
@@ -153,27 +137,3 @@ def default_X_names(X: DesignMatrix) -> list[str]:
 
 def default_y_name() -> str:
     return "y"
-
-
-# The helpers below are used by glm.glmnet, which is not yet annotated.
-def soft_threshold(z: Any, gamma: Any) -> Any:
-    abs_z = np.abs(z)
-    if gamma >= abs_z:
-        return 0.0
-    return np.sign(z) * (abs_z - gamma)
-
-
-def weighted_means(X: npt.NDArray[Any], weights: npt.NDArray[Any]) -> npt.NDArray[Any]:
-    return np.mean(X * weights.reshape(-1, 1), axis=0)
-
-
-def weighted_dot(
-    x0: npt.NDArray[Any], x1: npt.NDArray[Any], weights: npt.NDArray[Any]
-) -> Any:
-    return np.dot(x0, weights * x1)
-
-
-def weighted_column_dots(
-    X: npt.NDArray[Any], weights: npt.NDArray[Any]
-) -> npt.NDArray[Any]:
-    return np.sum(X * X * weights.reshape(-1, 1), axis=0)
