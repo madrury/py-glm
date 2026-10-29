@@ -26,6 +26,7 @@ from glm.types import (
     FrequencyWeights,
     InformationMatrix,
     InverseLinkDerivative,
+    LinearPredictor,
     MeanVector,
     Offset,
     PValueVector,
@@ -35,7 +36,6 @@ from glm.types import (
     StandardErrorVector,
     Standardization,
     VarianceVector,
-    WorkingWeights,
 )
 from glm.utils import (
     check_commensurate,
@@ -511,7 +511,7 @@ class GLM:
             # The gradient and expected Hessian of half the penalized deviance.
             gradient = self._deviance_gradient(design, y, μ, dμ, var, deviance_weights)
             hessian: DevianceHessian = self._information_matrix(
-                design, dμ, var, deviance_weights
+                design, η, μ, deviance_weights
             )
             if self._is_regularized():
                 gradient = gradient + self._penalty_gradient(β, penalized_coefficients)
@@ -542,14 +542,12 @@ class GLM:
         self.deviance_ = family.deviance(y, μ, deviance_weights)
         self.n = float(np.sum(frequency_weights[deviance_weights > 0]))
         self.p = X.shape[1]
-        # dμ and var come from the loop, which may have worked on standardized
+        # η and μ come from the loop, which may have worked on standardized
         # columns, while the information matrix is wanted on the original ones.
         # Mixing them is fine: standardizing changes the coefficients but not
-        # the linear predictor, design @ β = X @ coef_, so μ, and with it dμ
-        # and var, are the same in either coordinates.
-        self.information_matrix_ = self._information_matrix(
-            X, dμ, var, deviance_weights
-        )
+        # the linear predictor, design @ β = X @ coef_, so η and μ, and with
+        # them the working weights, are the same in either coordinates.
+        self.information_matrix_ = self._information_matrix(X, η, μ, deviance_weights)
         self.fit_inputs_ = fit_inputs
         return self
 
@@ -914,20 +912,22 @@ class GLM:
     def _information_matrix(
         self,
         X: DesignMatrix,
-        dμ: InverseLinkDerivative,
-        var: VarianceVector,
+        η: LinearPredictor,
+        μ: MeanVector,
         deviance_weights: DevianceWeights,
     ) -> InformationMatrix:
         """The expected Hessian of half the deviance, XᵗWX. This is φ times the
         Fisher information. With a canonical link it equals the actual Hessian,
         and Fisher scoring is Newton's method."""
-        working_weights: WorkingWeights = deviance_weights * dμ**2 / var
+        working_weights = self.family.working_weights(η, μ, deviance_weights)
         information: InformationMatrix = X.T @ (X * working_weights[:, None])
         return information
 
     def _penalized_coefficients(self, X: DesignMatrix) -> CoefficientMask:
-        """The penalty applies to every coefficient except the intercept, if
-        the model has one."""
+        """Which coefficients are penalized.
+
+        The penalty applies to every coefficient except the intercept, if the
+        model has one."""
         penalized_coefficients = np.ones(X.shape[1], dtype=np.bool_)
         if has_intercept_column(X):
             penalized_coefficients[0] = False

@@ -27,8 +27,6 @@ from glm.types import (
     Formula,
     FrequencyWeights,
     InformationEigenvalues,
-    LinearPredictor,
-    MeanVector,
     Offset,
     PrecisionWeights,
     ResponseVector,
@@ -84,8 +82,8 @@ class RidgePath:
 
     term_columns_: dict
         The names of the penalized coefficients belonging to each term of the
-        model, for plotting coefficients in groups. For a model fit without a
-        formula, each coefficient is its own term.
+        model, used for plotting coefficients in groups. For a model fit without
+        a formula, each coefficient is its own term.
 
     scales_: array, shape (n_features, )
         The scale of each column of the design matrix, by which the penalized
@@ -616,7 +614,7 @@ def default_alphas(
     Z = Standardizer(standardize).fit(X, frequency_weights).transform(X)
     eigenvalues = _profiled_eigenvalues(
         Z,
-        _working_weights(family, η, μ, deviance_weights),
+        family.working_weights(η, μ, deviance_weights),
         has_intercept_column(X),
     )
     nonzero = eigenvalues[eigenvalues > 1e-10 * eigenvalues.max()]
@@ -672,21 +670,6 @@ def _term_columns(template: GLM, X: DesignMatrix) -> TermColumns:
     return term_columns
 
 
-def _working_weights(
-    family: ExponentialFamily,
-    η: LinearPredictor,
-    μ: MeanVector,
-    deviance_weights: DevianceWeights,
-) -> WorkingWeights:
-    """The weights W in the information matrix XᵗWX, at the means μ."""
-    # Deviance weights here, since this formula arises from an expected
-    # second derivative of the weighted deviance.
-    working_weights: WorkingWeights = (
-        deviance_weights * family.d_inv_link(η, μ) ** 2 / family.variance(μ)
-    )
-    return working_weights
-
-
 def _profiled_eigenvalues(
     Z: DesignMatrix, working_weights: WorkingWeights, has_intercept: bool
 ) -> InformationEigenvalues:
@@ -696,13 +679,17 @@ def _profiled_eigenvalues(
     if Z_penalized.shape[1] == 0:
         raise ValueError("The model has no penalized coefficients.")
     if has_intercept:
+        # This gets a little tricky, our goal is to "profile out the intercept"
+        # from the information matrix.
+        # 
         # The penalty doesn't act on the intercept, so whatever the penalized
         # coefficients are, the intercept is refit freely alongside them. The
         # eigenvalues we want measure the information about the penalized
         # coefficients that remains *after* the intercept has been fit.
-        # Their block of the information matrix, ZᵗWZ, overstates it: a column
-        # with a large mean partly mimics the intercept, and ZᵗWZ credits it
-        # with information that really pins down the response's overall level.
+        # Their block of the information matrix, ZᵗWZ, overstates it:
+        # intuitively, a column with a large mean partly mimics the intercept,
+        # and ZᵗWZ credits it with information that really pins down the
+        # response's overall level.
         #
         # Removing what the intercept can explain is called "profiling it out".
         #
@@ -714,14 +701,22 @@ def _profiled_eigenvalues(
         # The information about Z's coefficients with the intercept profiled
         # out is the Schur complement of the intercept's block:
         #
-        #   ZᵗWZ - ZᵗW1 (1ᵗW1)⁻¹ 1ᵗWZ = (Z - 1m)ᵗ W (Z - 1m),
+        #   ZᵗWZ - ZᵗW1 (1ᵗW1)⁻¹ 1ᵗWZ
+        #     = ZᵗWZ - ZᵗW1m
+        #     = ZᵗW (Z - 1m)
+        #     = ZᵗW (Z - 1m) - mᵗ1ᵗW (Z - 1m)  <- See prose below.
+        #     = (Z - 1m)ᵗ W (Z - 1m),
         #
         # where m = (1ᵗW1)⁻¹ 1ᵗWZ is the vector of the columns' means, weighted
-        # by the working weights W (expanding the right hand side gives the
-        # left). So centering each column at its weighted mean, and then
-        # forming ZᵗWZ, computes exactly the profiled information. The
-        # Standardizer's centering doesn't suffice: it uses the frequency weights,
-        # not the working weights, and doesn't center indicator columns.
+        # by the working weights W. The last equality holds because the centered
+        # columns have weighted sum zero, 1ᵗW (Z - 1m) = 1ᵗWZ - (1ᵗW1) m = 0, so
+        # subtracting mᵗ1ᵗW (Z - 1m) changes nothing. So centering each column
+        # at its weighted mean, and then forming ZᵗWZ, computes exactly the
+        # profiled information. 
+        # 
+        # Note that the Standardizer's centering doesn't suffice: it uses the
+        # frequency weights, not the working weights, and doesn't center
+        # indicator columns.
         Z_penalized = Z_penalized - np.average(
             Z_penalized, axis=0, weights=working_weights
         )
@@ -754,7 +749,7 @@ def _effective_degrees_of_freedom(
         η = X @ model.coef_ + offset
         μ = family.inv_link(η)
         d = _profiled_eigenvalues(
-            Z, _working_weights(family, η, μ, deviance_weights), has_intercept
+            Z, family.working_weights(η, μ, deviance_weights), has_intercept
         )
         df[i] = np.sum(d / (d + alpha))
     return df

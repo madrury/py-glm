@@ -72,6 +72,10 @@ class ExponentialFamily(ABC):
         The (optionally weighted) sum of the unit deviances, a measure of the
         model's fit. Implemented once, here, from unit_deviance.
 
+    working_weights:
+        The weights W of the information matrix XᵗWX. Implemented once, here,
+        from d_inv_link and variance.
+
     coefficient_test:
         The reference distribution for testing that a coefficient is zero:
         Student's t if the dispersion is estimated, the standard normal if
@@ -98,17 +102,16 @@ class ExponentialFamily(ABC):
         return f"{type(self).__name__}()"
 
     def coefficient_test(self, residual_df: float) -> TestDistribution:
-        """The reference distribution of a coefficient's test statistic,
+        """The reference distribution of a coefficient's Wald test statistic,
         estimate / standard error, under the hypothesis that the true
         coefficient is zero.
 
-        A family with an estimated dispersion uses Student's t distribution
-        with the residual degrees of freedom, n - p, accounting for the
-        uncertainty in the dispersion estimate. For the Gaussian family this is
-        exact; for others it's the standard approximation. A family with a fixed
-        dispersion uses the standard normal: its statistics are asymptotically
-        normal, and nothing extra was estimated. This is the convention of R's
-        summary.glm.
+        A family with an estimated dispersion uses Student's t distribution with
+        the residual degrees of freedom, n - p, accounting for the uncertainty
+        in the dispersion estimate. For the Gaussian family this is exact; for
+        others it's the standard approximation. A family with a fixed dispersion
+        uses the standard normal: its statistics are asymptotically normal, and
+        nothing extra was estimated. This is the convention of R's summary.glm.
         """
         if self.has_dispersion:
             return TestDistribution("t", sts.t(df=residual_df))
@@ -147,6 +150,36 @@ class ExponentialFamily(ABC):
         if weights is not None:
             unit_deviances = weights * unit_deviances
         return float(np.sum(unit_deviances))
+
+    def working_weights(
+        self,
+        eta: LinearPredictor,
+        mu: MeanVector,
+        weights: DevianceWeights,
+    ) -> WorkingWeights:
+        """The weights W of the information matrix XᵗWX, at the means μ:
+        W = weight * (dμ/dη)² / V(μ).
+
+        These weight each row's contribution to the expected second derivative
+        of half the deviance, so they carry the deviance weights. They are also
+        the weights of Fisher scoring's weighted least squares step.
+
+        Parameters
+        ----------
+        eta: array, shape (n_samples, )
+            The linear predictor η.
+
+        mu: array, shape (n_samples, )
+            The means μ, the inverse link of η.
+
+        weights: array, shape (n_samples, )
+            Each row's weight on its contribution to the deviance: its
+            frequency weight times its precision weight.
+        """
+        working_weights: WorkingWeights = (
+            weights * self.d_inv_link(eta, mu) ** 2 / self.variance(mu)
+        )
+        return working_weights
 
     @abstractmethod
     def sample(
@@ -196,12 +229,6 @@ class Gaussian(ExponentialFamily):
     ) -> ResponseVector:
         weights = 1.0 if precision_weights is None else precision_weights
         return _generator(rng).normal(mu, np.sqrt(dispersion / weights))
-
-    def initial_working_response(self, y: ResponseVector) -> ResponseVector:
-        return y
-
-    def initial_working_weights(self, y: ResponseVector) -> WorkingWeights:
-        return (1 / len(y)) * np.ones(len(y))
 
 
 class Bernoulli(ExponentialFamily):
@@ -253,12 +280,6 @@ class Bernoulli(ExponentialFamily):
         # The proportion of successes in w trials.
         trials = _are_whole_numbers(precision_weights, self)
         return _generator(rng).binomial(trials, mu) / trials
-
-    def initial_working_response(self, y: ResponseVector) -> ResponseVector:
-        return (y - 0.5) / 0.25
-
-    def initial_working_weights(self, y: ResponseVector) -> WorkingWeights:
-        return (1 / len(y)) * 0.25 * np.ones(len(y))
 
 
 class QuasiPoisson(ExponentialFamily):
