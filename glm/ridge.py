@@ -19,6 +19,7 @@ from glm.types import (
     ColumnScales,
     DesignFrame,
     DesignMatrix,
+    DevianceWeights,
     EffectiveDegreesOfFreedom,
     FoldDeviances,
     FoldFrequencyWeights,
@@ -28,7 +29,6 @@ from glm.types import (
     InformationEigenvalues,
     LinearPredictor,
     MeanVector,
-    ObservationWeights,
     Offset,
     PrecisionWeights,
     ResponseVector,
@@ -212,14 +212,14 @@ class RidgePath:
         # of freedom of each alpha.
         standardizer = Standardizer(self.standardize).fit(design, frequency_weights)
         self.scales_ = standardizer.scales_
-        observation_weights: ObservationWeights = frequency_weights * precision_weights
+        deviance_weights: DevianceWeights = frequency_weights * precision_weights
         self.df_ = _effective_degrees_of_freedom(
             models,
             grid,
             design,
             standardizer.transform(design),
             np.zeros(design.shape[0]) if offset is None else offset,
-            observation_weights,
+            deviance_weights,
             has_intercept_column(design),
         )
         return self
@@ -269,7 +269,7 @@ class RidgePathCV:
     observation of an average or proportion, so it is held out whole, keeping
     its weight.
 
-    Each fold's held-out loss is its deviance per unit of observation weight,
+    Each fold's held-out loss is its deviance per unit of deviance weight,
 
         sum(f * p * d) / sum(f * p),
 
@@ -316,10 +316,10 @@ class RidgePathCV:
         precision weight carry no weight, so are never held out.
 
     fold_weights_: array, shape (n_folds, )
-        The total observation weight each fold held out.
+        The total deviance weight each fold held out.
 
     fold_deviances_: array, shape (n_folds, n_alphas)
-        Each fold's held-out deviance per unit of observation weight, at each
+        Each fold's held-out deviance per unit of deviance weight, at each
         penalty strength.
 
     cv_deviance_: array, shape (n_alphas, )
@@ -449,7 +449,7 @@ class RidgePathCV:
             training_frequency_weights = frequency_weights - held_out_frequency_weights
             training_rows = np.flatnonzero(training_frequency_weights > 0)
             held_out_rows = np.flatnonzero(held_out_frequency_weights > 0)
-            held_out_weights: ObservationWeights = (
+            held_out_weights: DevianceWeights = (
                 held_out_frequency_weights[held_out_rows]
                 * precision_weights[held_out_rows]
             )
@@ -606,9 +606,9 @@ def default_alphas(
     """
     frequency_weights = check_weights("frequency_weights", y, frequency_weights)
     precision_weights = check_weights("precision_weights", y, precision_weights)
-    observation_weights: ObservationWeights = frequency_weights * precision_weights
+    deviance_weights: DevianceWeights = frequency_weights * precision_weights
     # The intercept-only model fits the weighted mean response everywhere.
-    μ = np.full(X.shape[0], np.average(y, weights=observation_weights))
+    μ = np.full(X.shape[0], np.average(y, weights=deviance_weights))
     with np.errstate(divide="ignore"):
         η = family.link(μ)
     if not np.all(np.isfinite(η)):
@@ -616,7 +616,7 @@ def default_alphas(
     Z = Standardizer(standardize).fit(X, frequency_weights).transform(X)
     eigenvalues = _profiled_eigenvalues(
         Z,
-        _working_weights(family, η, μ, observation_weights),
+        _working_weights(family, η, μ, deviance_weights),
         has_intercept_column(X),
     )
     nonzero = eigenvalues[eigenvalues > 1e-10 * eigenvalues.max()]
@@ -676,13 +676,13 @@ def _working_weights(
     family: ExponentialFamily,
     η: LinearPredictor,
     μ: MeanVector,
-    observation_weights: ObservationWeights,
+    deviance_weights: DevianceWeights,
 ) -> WorkingWeights:
     """The weights W in the information matrix XᵗWX, at the means μ."""
-    # Observation weights here, since this formula arises from an expected
-    # second derivative of the deviance, which is observation weighted.
+    # Deviance weights here, since this formula arises from an expected
+    # second derivative of the weighted deviance.
     working_weights: WorkingWeights = (
-        observation_weights * family.d_inv_link(η, μ) ** 2 / family.variance(μ)
+        deviance_weights * family.d_inv_link(η, μ) ** 2 / family.variance(μ)
     )
     return working_weights
 
@@ -739,7 +739,7 @@ def _effective_degrees_of_freedom(
     X: DesignMatrix,
     Z: DesignMatrix,
     offset: Offset,
-    observation_weights: ObservationWeights,
+    deviance_weights: DevianceWeights,
     has_intercept: bool,
 ) -> EffectiveDegreesOfFreedom:
     """sum(d / (d + alpha)) for each model, with d the eigenvalues of its
@@ -754,7 +754,7 @@ def _effective_degrees_of_freedom(
         η = X @ model.coef_ + offset
         μ = family.inv_link(η)
         d = _profiled_eigenvalues(
-            Z, _working_weights(family, η, μ, observation_weights), has_intercept
+            Z, _working_weights(family, η, μ, deviance_weights), has_intercept
         )
         df[i] = np.sum(d / (d + alpha))
     return df

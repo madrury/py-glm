@@ -16,7 +16,7 @@ from glm.types import (
     MeanVector,
     ReferenceDistribution,
     ResponseVector,
-    ObservationWeights,
+    DevianceWeights,
     PrecisionWeights,
     WorkingWeights,
     UnitDeviances,
@@ -138,7 +138,7 @@ class ExponentialFamily(ABC):
         self,
         y: ResponseVector,
         mu: MeanVector,
-        weights: ObservationWeights | None = None,
+        weights: DevianceWeights | None = None,
     ) -> Deviance:
         """The sum of the unit deviances, each multiplied by its weight, if
         weights are given: each row's frequency weight times its precision

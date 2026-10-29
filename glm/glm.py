@@ -21,12 +21,12 @@ from glm.types import (
     Deviance,
     DevianceGradient,
     DevianceHessian,
+    DevianceWeights,
     Formula,
     FrequencyWeights,
     InformationMatrix,
     InverseLinkDerivative,
     MeanVector,
-    ObservationWeights,
     Offset,
     PValueVector,
     PrecisionWeights,
@@ -470,8 +470,8 @@ class GLM:
         check_finite("offset", offset)
         frequency_weights = check_weights("frequency_weights", y, frequency_weights)
         precision_weights = check_weights("precision_weights", y, precision_weights)
-        # Each row's weight weight on its contribution to the deviance.
-        observation_weights: ObservationWeights = frequency_weights * precision_weights
+        # Each row's weight on its contribution to the deviance.
+        deviance_weights: DevianceWeights = frequency_weights * precision_weights
         # A ridge penalty makes the fit well defined even when the matrix is
         # rank deficient.
         if not self._is_regularized():
@@ -481,15 +481,13 @@ class GLM:
             # is the diagonal matrix of working weights) to be full rank at each
             # iteration. It sufficies to ensure that X itself is full rank,
             # because rank(XᵗWX) = rank(√WX) = rank(X).
-            check_full_rank(
-                X[observation_weights > 0], self.X_names or default_X_names(X)
-            )
+            check_full_rank(X[deviance_weights > 0], self.X_names or default_X_names(X))
         penalized_coefficients = self._penalized_coefficients(X)
         # We're gonna reference self.family a lot, so cache a local variable for
         # a bit of efficiency.
         family = self.family
         if warm_start is None:
-            warm_start = self._cold_start(X, y, offset, observation_weights)
+            warm_start = self._cold_start(X, y, offset, deviance_weights)
         # Penalized fits work on standardized columns, so that the penalty does
         # not depend on the predictors' units. Unpenalized fits are unchanged
         # by standardizing, so skip it for them.
@@ -505,17 +503,15 @@ class GLM:
         dμ = family.d_inv_link(η, μ)
         var = family.variance(μ)
         penalized_deviance = self._penalized_deviance(
-            y, μ, β, penalized_coefficients, observation_weights
+            y, μ, β, penalized_coefficients, deviance_weights
         )
         is_converged = False
         n_iter = 0
         while n_iter < max_iter and not is_converged:
             # The gradient and expected Hessian of half the penalized deviance.
-            gradient = self._deviance_gradient(
-                design, y, μ, dμ, var, observation_weights
-            )
+            gradient = self._deviance_gradient(design, y, μ, dμ, var, deviance_weights)
             hessian: DevianceHessian = self._information_matrix(
-                design, dμ, var, observation_weights
+                design, dμ, var, deviance_weights
             )
             if self._is_regularized():
                 gradient = gradient + self._penalty_gradient(β, penalized_coefficients)
@@ -534,7 +530,7 @@ class GLM:
             dμ = family.d_inv_link(η, μ)
             var = family.variance(μ)
             penalized_deviance = self._penalized_deviance(
-                y, μ, β, penalized_coefficients, observation_weights
+                y, μ, β, penalized_coefficients, deviance_weights
             )
             n_iter += 1
 
@@ -543,8 +539,8 @@ class GLM:
         if not np.all(np.isfinite(β)):
             raise ValueError(NON_FINITE_ESTIMATES_MESSAGE)
         self.coef_ = β
-        self.deviance_ = family.deviance(y, μ, observation_weights)
-        self.n = float(np.sum(frequency_weights[observation_weights > 0]))
+        self.deviance_ = family.deviance(y, μ, deviance_weights)
+        self.n = float(np.sum(frequency_weights[deviance_weights > 0]))
         self.p = X.shape[1]
         # dμ and var come from the loop, which may have worked on standardized
         # columns, while the information matrix is wanted on the original ones.
@@ -552,7 +548,7 @@ class GLM:
         # the linear predictor, design @ β = X @ coef_, so μ, and with it dμ
         # and var, are the same in either coordinates.
         self.information_matrix_ = self._information_matrix(
-            X, dμ, var, observation_weights
+            X, dμ, var, deviance_weights
         )
         self.fit_inputs_ = fit_inputs
         return self
@@ -644,10 +640,8 @@ class GLM:
         check_finite("y", y)
         frequency_weights = check_weights("frequency_weights", y, frequency_weights)
         precision_weights = check_weights("precision_weights", y, precision_weights)
-        observation_weights: ObservationWeights = frequency_weights * precision_weights
-        return self.family.deviance(
-            y, self.predict(X, offset=offset), observation_weights
-        )
+        deviance_weights: DevianceWeights = frequency_weights * precision_weights
+        return self.family.deviance(y, self.predict(X, offset=offset), deviance_weights)
 
     def design_matrix(self, X: DesignMatrix | DesignFrame) -> DesignMatrix:
         """Return the design matrix a fit model uses for the given data.
@@ -852,7 +846,7 @@ class GLM:
         X: DesignMatrix,
         y: ResponseVector,
         offset: Offset,
-        observation_weights: ObservationWeights,
+        deviance_weights: DevianceWeights,
     ) -> CoefficientVector:
         """Starting coefficients when none are supplied.
 
@@ -874,7 +868,7 @@ class GLM:
         offset: array, shape (n_samples, )
             The offset on the linear predictor.
 
-        observation_weights: array, shape (n_samples, )
+        deviance_weights: array, shape (n_samples, )
             Each row's weight on its contribution to the deviance.
 
         Returns
@@ -885,7 +879,7 @@ class GLM:
         β: CoefficientVector = np.zeros(X.shape[1])
         if not has_intercept_column(X):
             return β
-        ȳ = np.average(y, weights=observation_weights)
+        ȳ = np.average(y, weights=deviance_weights)
         # The intercept-only model fits the same mean, ȳ, for every
         # observation, so its linear predictor is constant.
         μ_null = np.full(X.shape[0], ȳ)
@@ -896,7 +890,7 @@ class GLM:
         # estimate is infinite, so no finite estimate can exist.
         if not np.isfinite(intercept):
             raise ValueError(NON_FINITE_ESTIMATES_MESSAGE)
-        β[0] = intercept - np.average(offset, weights=observation_weights)
+        β[0] = intercept - np.average(offset, weights=deviance_weights)
         return β
 
     def _is_regularized(self) -> bool:
@@ -909,12 +903,12 @@ class GLM:
         μ: MeanVector,
         dμ: InverseLinkDerivative,
         var: VarianceVector,
-        observation_weights: ObservationWeights,
+        deviance_weights: DevianceWeights,
     ) -> DevianceGradient:
         """The gradient of half the deviance with respect to the coefficients,
-        -Xᵗ (y - μ) dμ / V(μ), observation weighted. This is -φ times the score,
+        -Xᵗ (y - μ) dμ / V(μ), deviance weighted. This is -φ times the score,
         the gradient of the log likelihood."""
-        working_residuals = observation_weights * (y - μ) * (dμ / var)
+        working_residuals = deviance_weights * (y - μ) * (dμ / var)
         return -np.sum(X * working_residuals.reshape(-1, 1), axis=0)
 
     def _information_matrix(
@@ -922,12 +916,12 @@ class GLM:
         X: DesignMatrix,
         dμ: InverseLinkDerivative,
         var: VarianceVector,
-        observation_weights: ObservationWeights,
+        deviance_weights: DevianceWeights,
     ) -> InformationMatrix:
         """The expected Hessian of half the deviance, XᵗWX. This is φ times the
         Fisher information. With a canonical link it equals the actual Hessian,
         and Fisher scoring is Newton's method."""
-        working_weights: WorkingWeights = observation_weights * dμ**2 / var
+        working_weights: WorkingWeights = deviance_weights * dμ**2 / var
         information: InformationMatrix = X.T @ (X * working_weights[:, None])
         return information
 
@@ -945,10 +939,10 @@ class GLM:
         μ: MeanVector,
         β: CoefficientVector,
         penalized_coefficients: CoefficientMask,
-        observation_weights: ObservationWeights,
+        deviance_weights: DevianceWeights,
     ) -> Deviance:
         penalty = self.alpha * float(np.sum(β[penalized_coefficients] ** 2))
-        return self.family.deviance(y, μ, observation_weights) + penalty
+        return self.family.deviance(y, μ, deviance_weights) + penalty
 
     def _penalty_gradient(
         self, β: CoefficientVector, penalized_coefficients: CoefficientMask

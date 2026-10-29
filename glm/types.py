@@ -47,14 +47,14 @@ shape (n,): Var[y | X] = dispersion * V(μ) / weight. Typical when a response
 is an average or proportion over several units, e.g. a proportion of successes
 weighted by its number of trials. R's glm calls these prior weights."""
 
-type ObservationWeights = npt.NDArray[np.float64]
+type DevianceWeights = npt.NDArray[np.float64]
 """Each row's weight in a fit, its frequency weight times its precision weight,
 shape (n,): the weight on its contribution to the deviance."""
 
 type WorkingWeights = npt.NDArray[np.float64]
 """The weights W of Fisher scoring's weighted least squares step, shape (n,):
-W = observation weight * (dμ/dη)² / V(μ), so that the information matrix is
-XᵗWX. Unlike the observation weights, they depend on the current fit."""
+W = deviance weight * (dμ/dη)² / V(μ), so that the information matrix is
+XᵗWX. Unlike the deviance weights, they depend on the current fit."""
 
 # Penalized fitting.
 type AlphaGrid = npt.NDArray[np.float64]
@@ -75,11 +75,11 @@ shape (n_folds, n): each column sums to the row's frequency weight, so a row
 standing for several observations can be split across folds."""
 
 type FoldWeights = npt.NDArray[np.float64]
-"""The total observation weight held out in each cross-validation fold, shape
+"""The total deviance weight held out in each cross-validation fold, shape
 (n_folds,)."""
 
 type FoldDeviances = npt.NDArray[np.float64]
-"""The held-out deviance per unit of observation weight, for each
+"""The held-out deviance per unit of deviance weight, for each
 cross-validation fold and penalty strength, shape (n_folds, n_alphas)."""
 
 type CVDeviances = npt.NDArray[np.float64]
