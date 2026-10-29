@@ -786,7 +786,8 @@ class GLM:
         Parameters
         ----------
         level: float, between 0 and 1
-            The confidence level of the intervals.
+            The confidence level of the intervals, e.g. 0.99 for 99% intervals.
+            A level below 0.5 warns, as it's likely a significance level.
         """
         if self.coef_ is None:
             raise ValueError("A summary is only available for a fit model.")
@@ -794,6 +795,15 @@ class GLM:
             raise ValueError("p-values can only be computed for a fit model.")
         if not 0 < level < 1:
             raise ValueError(f"level must be between 0 and 1, got {level}.")
+        if level < 0.5:
+            # Almost always a significance level passed by mistake, e.g. 0.01
+            # meaning a 99% interval.
+            warnings.warn(
+                f"level is the confidence level, so level={level:g} gives "
+                f"very narrow {100 * level:g}% intervals. For {100 * (1 - level):g}% "
+                f"intervals, pass level={1 - level:g}.",
+                stacklevel=2,
+            )
         if self._is_regularized():
             return pd.DataFrame({"estimate": self.coef_}, index=self.X_names)
         standard_errors = self.coef_standard_error_

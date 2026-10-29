@@ -137,6 +137,12 @@ def test_invalid_level_raises(formula_model: GLM, level: float) -> None:
         formula_model.summary_frame(level=level)
 
 
+def test_low_level_warns(formula_model: GLM) -> None:
+    with pytest.warns(UserWarning, match="pass level=0.99"):
+        frame = formula_model.summary_frame(level=0.01)
+    assert "lower 1%" in frame.columns
+
+
 def test_summary_prints_the_frame_without_stars(
     formula_model: GLM, capsys: pytest.CaptureFixture[str]
 ) -> None:
