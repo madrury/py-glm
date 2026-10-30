@@ -156,7 +156,8 @@ class RidgePath:
             alphas are supplied.
         """
         check_alphas(alphas, n_alphas)
-        # Encode the data once. Any positive alpha gives the same encoding.
+        # We construct a template GLM to help encode the data, so the value of
+        # alpha for this template does not matter as long as its not zero.
         template = GLM(self.family, alpha=1.0, standardize=self.standardize)
         design, response = template._prepare_data(X, y, formula, X_names, y_name)
         frequency_weights = check_weights(
@@ -179,6 +180,7 @@ class RidgePath:
         else:
             grid = np.sort(np.asarray(alphas, dtype=np.float64))[::-1]
 
+        # Main Loop: Fit over the grid of alphas.
         models: list[GLM] = []
         warm_start: CoefficientVector | None = None
         for alpha in grid:
@@ -203,11 +205,15 @@ class RidgePath:
         self.alphas_ = grid
         self.models_ = models
         self.term_columns_ = _term_columns(template, design)
-        # This is intentionally a little wasteful, since we've already
+
+        # We have alphas, now compute their implied effective degrees of
+        # freedom. To do so, we need the standardized data that was used to fit
+        # the ridge regressions, since we need the eigenvalues of its
+        # information matrix.
+        #
+        # This is intentionally a dome a little wastefully, since we've already
         # standardized the data when fitting the model. We chose the duplicated
-        # effort for a clean separation of concerns; here we need the
-        # standardized columns and their scales to compute the effective degrees
-        # of freedom of each alpha.
+        # effort for a clean separation of concerns
         standardizer = Standardizer(self.standardize).fit(design, frequency_weights)
         self.scales_ = standardizer.scales_
         deviance_weights: DevianceWeights = frequency_weights * precision_weights
@@ -591,9 +597,14 @@ def default_alphas(
     completely when alpha is much larger (Hastie, Tibshirani and Friedman, The
     Elements of Statistical Learning, 2nd ed., section 3.4.1, for linear
     regression; a GLM is locally a weighted linear regression, with the
-    information matrix in place of XᵗX). So the path happens between the
-    eigenvalues, and the grid is log-spaced from GRID_MARGIN times the largest
-    eigenvalue down to the smallest nonzero eigenvalue divided by GRID_MARGIN.
+    information matrix in place of XᵗX). This means that if:
+ 
+      alpha >> largest eigenvalue, then every direction is shrunk away.
+      alpha << smallest eigenvalue, then every direction is left alone
+
+    So the meaningful stuff happens between the eigenvalues. Consequently, we
+    take our alpha grid log-spaced from GRID_MARGIN times the largest eigenvalue
+    down to the smallest nonzero eigenvalue divided by GRID_MARGIN.
 
     The information matrix is evaluated at the intercept-only model, for the
     (standardized) penalized columns, with the unpenalized intercept profiled
