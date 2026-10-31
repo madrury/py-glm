@@ -174,6 +174,7 @@ class ParticipationIntensityModel:
     mean_: ParticipationIntensityFunction | None = None
 
     def fit(self, X: pd.DataFrame) -> Self:
+        self._check_X(X)
         self.participation.fit(X, formula="d ~ x")
         assert self.participation.coef_ is not None
         self.intensity.fit(X.query("d == 1"), formula="y ~ x")
@@ -209,6 +210,28 @@ class ParticipationIntensityModel:
             ]
         )
         return float(np.sqrt(gradient @ cov @ gradient))
+
+    def _check_X(self, X: pd.DataFrame) -> None:
+        if "d" not in X:
+            raise ValueError("Participation column d is not present.")
+        if "y" not in X:
+            raise ValueError("Intensity column y is not present.")
+        if "x" not in X:
+            raise ValueError("Covariate column x is not present.")
+        if not all((X["d"] == 0) | (X["d"] == 1)):
+            raise ValueError("Participation column d is not a binary 0, 1 variable.")
+        participating_count = int(X["d"].sum())
+        if participating_count <= 2:
+            raise ValueError(
+                f"Got {participating_count} participating observations (d = 1); "
+                "at least 3 are needed to fit the intensity model."
+            )
+        if participating_count == len(X):
+            raise ValueError(
+                "Every observation is participating (d = 1); at least one "
+                "non-participating observation is needed to fit the "
+                "participation model."
+            )
 
 
 def sample_data(
