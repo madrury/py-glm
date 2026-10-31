@@ -1,5 +1,6 @@
 from typing import Any, Self
 from dataclasses import dataclass, field
+import warnings
 
 import numpy as np
 from numpy.typing import NDArray
@@ -88,7 +89,7 @@ class ParticipationIntensityFunction:
         """
         if self._argmax is not None:
             return self._argmax
-        a, b, α, β = self.a, self.b, self.α, self.β
+        a, b, _, β = self.a, self.b, self.α, self.β
         if b * β >= 0:
             raise ValueError(
                 "The critical point is a maximum only when bβ < 0, "
@@ -250,21 +251,34 @@ class CoverageSimulation:
     """
 
     mean: ParticipationIntensityFunction
+    models: list[ParticipationIntensityModel] = field(default_factory=list, init=False)
+    dropped_count: int = field(default=0, init=False)
+
+    def __post_init__(self) -> None:
+        # Raises unless the critical point is a maximum.
+        self.mean.argmax()
 
     def sample(self, n: int, nxs: int = 100) -> Self:
         models: list[ParticipationIntensityModel] = []
+        self.dropped_count = 0
         for _ in range(n):
             xs = np.linspace(0.0, 3.0, num=nxs)
             X = sample_data(self.mean, xs)
-            model = ParticipationIntensityModel().fit(X)
+            try:
+                model = ParticipationIntensityModel().fit(X)
+                model.argmax_()
+            except ValueError as e:
+                warnings.warn(f"Dropping a sample: {e}")
+                self.dropped_count += 1
+                continue
             models.append(model)
         self.models = models
         return self
 
-    def argmaxs_(self) -> Floats:
+    def argmaxs_(self) -> NDArray[np.float64]:
         return np.fromiter((model.argmax_() for model in self.models), float)
 
-    def argmax_ses_(self) -> Floats:
+    def argmax_ses_(self) -> NDArray[np.float64]:
         return np.fromiter((model.argmax_se_() for model in self.models), float)
 
     def argmax_cis_(self, level: float = 0.95) -> NDArray[np.float64]:
