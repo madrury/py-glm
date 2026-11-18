@@ -10,6 +10,7 @@ from scipy.special import wrightomega as ω
 
 
 from glm.glm import GLM
+from glm.extras.confidence_intervals import ConfidenceIntervals
 from glm.families import Gaussian, Bernoulli
 
 type Floats = NDArray[np.floating[Any]] | float
@@ -281,13 +282,15 @@ class CoverageSimulation:
     def argmax_ses_(self) -> NDArray[np.float64]:
         return np.fromiter((model.argmax_se_() for model in self.models), float)
 
-    def argmax_cis_(self, level: float = 0.95) -> NDArray[np.float64]:
+    def argmax_cis_(self, level: float = 0.95) -> ConfidenceIntervals:
         """Wald intervals for the true critical point, one for each sampled fit,
         centered at its estimated critical point, with standard errors from the
         delta method."""
         amaxs = self.argmaxs_()
         amax_ses = self.argmax_ses_()
         quantile = float(sts.norm.ppf((1 + level) / 2))
-        return np.column_stack(
-            [amaxs - quantile * amax_ses, amaxs + quantile * amax_ses]
+        return ConfidenceIntervals(
+            lower=amaxs - quantile * amax_ses,
+            upper=amaxs + quantile * amax_ses,
+            level=level,
         )

@@ -165,3 +165,13 @@ def test_coverage_simulation_sample_resets_its_state() -> None:
     # for exactly the 10 it drew.
     assert len(simulation.models) + simulation.dropped_count == 10
     assert len(simulation.models) > 0
+
+
+def test_argmax_cis_are_centered_at_the_estimates() -> None:
+    np.random.seed(0)
+    simulation = CoverageSimulation(MEANS[0]).sample(20, nxs=500)
+    cis = simulation.argmax_cis_(level=0.9)
+    assert cis.level == 0.9
+    assert cis.lower.shape == (len(simulation.models),)
+    np.testing.assert_allclose((cis.lower + cis.upper) / 2, simulation.argmaxs_())
+    assert np.all(cis.lower < cis.upper)
