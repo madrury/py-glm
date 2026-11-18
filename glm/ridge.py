@@ -185,6 +185,10 @@ class RidgePath:
         warm_start: CoefficientVector | None = None
         for alpha in grid:
             model = GLM(self.family, alpha=float(alpha), standardize=self.standardize)
+            # Here we fit each model in the path to the already encoded data,
+            # note we don't supply a formula here so the data is not being
+            # re-encoded. After fitting we manually inject the correct formula
+            # and specs so that prediction is done correctly.
             model.fit(
                 design,
                 response,
@@ -211,9 +215,9 @@ class RidgePath:
         # the ridge regressions, since we need the eigenvalues of its
         # information matrix.
         #
-        # This is intentionally a dome a little wastefully, since we've already
-        # standardized the data when fitting the model. We chose the duplicated
-        # effort for a clean separation of concerns
+        # This seems a little wasteful, since we've already standardized the
+        # data when fitting the model. We chose the duplicated effort for a
+        # clean separation of concerns.
         standardizer = Standardizer(self.standardize).fit(design, frequency_weights)
         self.scales_ = standardizer.scales_
         deviance_weights: DevianceWeights = frequency_weights * precision_weights
@@ -286,13 +290,22 @@ class RidgePathCV:
     The folds are averaged weighted by their total held-out weight, so that each
     unit of weight counts equally (rather than each fold).
 
-    Each fold learns its own formula encoding, so a categorical level may be
-    missing from a fold's training data. The penalized fold models predict it at
-    the baseline, with all its indicators zero (see GLM.predict). It is
-    important to fully encode each categorical instead of leaving one level out,
-    otherwise the baseline will be the level left out. The default formula
-    encoding when using a ridge penalty is full, so this is only a risk when
-    encoding manually.
+    Each fold's RidgePath learns its own formula encoding, which has a couple of
+    consequences:
+
+    For categorical variables, this means that a level of a categorical variable
+    may be missing from a fold's training data. In this case the resulting fit
+    model predicts any test observation with this category at the baseline, with
+    all its indicators zero (see GLM.predict). This means it is important to
+    *fully* encode each categorical instead of leaving one level out, otherwise
+    the baseline will be the level left out. The default formula encoding when
+    using a ridge penalty is to fully encode each categorical, so there is only
+    a risk when encoding manually.
+
+    For continuous variables, this means that the standardizing means and scales
+    are computed from the fold's training data alone, so the held-out data has
+    no influence on the penalty. GLM.fit standardizes internally and returns
+    coefficients on the original scale.
 
     Parameters
     ----------
@@ -411,6 +424,19 @@ class RidgePathCV:
             The generator to split the observations into folds with. Pass one
             to make the folds reproducible.
         """
+        # We begin by fitting a ridge path on the entire dataset. The resulting
+        # path of models are not part of the cross validation loop, i.e., they
+        # do not enter into estimation of the test error.
+        #
+        # But they do serve some important purposes:
+        #   - The alpha grid computed by this RidgePath is used for each
+        #     subsequent RidgePath in the cross validation loop. This ensures
+        #     every path uses the same grid of alphas.
+        #   - The model along this path at the minimum CV error is the "best"
+        #     model, we don't need to retrain after determining the optimal
+        #     alpha.
+        # The entire path of trained models is retained as self.path_, in case
+        # the user desires some other selection criteria.
         path = RidgePath(self.family, standardize=self.standardize).fit(
             X,
             y,
@@ -428,8 +454,9 @@ class RidgePathCV:
         )
         assert path.alphas_ is not None and path.models_ is not None
         grid = path.alphas_
-        template = path.models_[0]
-        response = template.response_vector(X, y)
+        # Any model in the path would work here, we're just pulling out the
+        # response vector, and they're all the same.
+        response = path.models_[0].response_vector(X, y)
         frequency_weights = check_weights(
             "frequency_weights", response, frequency_weights
         )
@@ -439,9 +466,9 @@ class RidgePathCV:
         if offset is None:
             offset = np.zeros(response.shape[0])
 
-        # Rows with zero precision weight carry no weight, so dealing their
-        # observations to folds would only unbalance them. They stay in every
-        # training set, where their zero weight leaves the fits unchanged.
+        # Rows with zero precision weight do not influence the fit, so dealing
+        # their observations to folds would only unbalance them. They stay in
+        # every training set, where their zero weight leaves the fits unchanged.
         folds = fold_frequency_weights(
             np.where(precision_weights > 0, frequency_weights, 0.0),
             self.n_folds,
@@ -475,11 +502,12 @@ class RidgePathCV:
             assert fold_path.models_ is not None
             held_out_X = _take_rows(X, held_out_rows)
             # For a formula model, predict re-encodes the held-out data frame
-            # for every model on the path, though the models all share one
-            # encoding. Encoding once, with the first model's spec, would save
-            # that, but predict only takes data frames for formula models, so
-            # it would mean computing the predictions by hand here. We chose
-            # the straightforward version; revisit if this is ever too slow.
+            # for every model on the path, though the models all share the same
+            # encoding. Encoding once, with the first model's spec, would be
+            # more efficient but predict only accepts data frames for X when a
+            # model has a formula, so it would mean computing the predictions by
+            # hand here. We chose the straightforward version using predict and
+            # accepting the inefficiency; revisit if this is ever too slow.
             for j, model in enumerate(fold_path.models_):
                 μ = model.predict(held_out_X, offset=offset[held_out_rows])
                 deviance = self.family.deviance(
@@ -518,8 +546,8 @@ def fold_frequency_weights(
     n_folds: int,
     rng: np.random.Generator,
 ) -> FoldFrequencyWeights:
-    """Deal the observations that rows encapsulate to cross-validation
-    folds.
+    """Deal the (possibly multiple) observations that rows encapsulate to
+    cross-validation folds.
 
     A row with frequency weight f stands for f independent observations, and
     each is assigned a fold separately. This splits the data exactly as
@@ -576,6 +604,7 @@ def fold_frequency_weights(
         drawn = rng.multivariate_hypergeometric(remaining, fold_size)
         folds[k] = drawn
         remaining = remaining - drawn
+    assert np.all(remaining == 0)
     return folds
 
 
@@ -598,7 +627,7 @@ def default_alphas(
     Elements of Statistical Learning, 2nd ed., section 3.4.1, for linear
     regression; a GLM is locally a weighted linear regression, with the
     information matrix in place of XᵗX). This means that if:
- 
+
       alpha >> largest eigenvalue, then every direction is shrunk away.
       alpha << smallest eigenvalue, then every direction is left alone
 
@@ -692,7 +721,7 @@ def _profiled_eigenvalues(
     if has_intercept:
         # This gets a little tricky, our goal is to "profile out the intercept"
         # from the information matrix.
-        # 
+        #
         # The penalty doesn't act on the intercept, so whatever the penalized
         # coefficients are, the intercept is refit freely alongside them. The
         # eigenvalues we want measure the information about the penalized
@@ -723,8 +752,8 @@ def _profiled_eigenvalues(
         # columns have weighted sum zero, 1ᵗW (Z - 1m) = 1ᵗWZ - (1ᵗW1) m = 0, so
         # subtracting mᵗ1ᵗW (Z - 1m) changes nothing. So centering each column
         # at its weighted mean, and then forming ZᵗWZ, computes exactly the
-        # profiled information. 
-        # 
+        # profiled information.
+        #
         # Note that the Standardizer's centering doesn't suffice: it uses the
         # frequency weights, not the working weights, and doesn't center
         # indicator columns.

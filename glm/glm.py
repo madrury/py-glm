@@ -1015,7 +1015,7 @@ class GLM:
         return response
 
     def _copy_formula(self, other: "GLM") -> None:
-        """Take another model's formula and specs, so that this model, fit to
+        """Inject another model's formula and specs, so that this model, fit to
         that model's design matrix, can make predictions from data frames."""
         self.formula = other.formula
         self.X_spec, self.y_spec = other.X_spec, other.y_spec
