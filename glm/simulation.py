@@ -281,9 +281,9 @@ class Simulation:
         self._fit_inputs().check(offset, frequency_weights, precision_weights)
         # Encode a formula model's data once, with the specs learned when
         # fitting the original model. Re-learning them on each resample could
-        # drop a rare category's column, or change the reference level or a
-        # stateful transform such as center(x), so that replicates would
-        # estimate different quantities.
+        # drop a rare category's column, or change the reference level of a
+        # categorical, or the learned parameters of a stateful transform such as
+        # center(x), so that replicates would estimate different quantities.
         design = self.glm.design_matrix(X)
         response = self.glm.response_vector(X, y)
         frequency_weights = check_weights(

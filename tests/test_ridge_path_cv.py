@@ -2,13 +2,22 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from glm.encoding import encode_design, learn_formula
 from glm.families import Poisson
 from glm.glm import GLM
-from glm.ridge import RidgePath, RidgePathCV, fold_frequency_weights
+from glm.ridge import (
+    RidgePath,
+    RidgePathCV,
+    cv_encoding_spec,
+    fold_frequency_weights,
+)
 
 N = 300
 N_FOLDS = 5
 ALPHAS = [100.0, 10.0, 1.0, 0.1]
+# Stateful transforms and a level only one row has: each fold's encoding learns
+# different state from its training rows than the full data would give.
+STATEFUL_FORMULA = "y ~ center(x1) + bs(x2, df=4, extrapolation='extend') + C(g)"
 
 
 @pytest.fixture
@@ -208,6 +217,114 @@ def test_level_unseen_in_training_fold(df: pd.DataFrame) -> None:
     )
     assert cv.fold_deviances_ is not None
     assert np.all(np.isfinite(cv.fold_deviances_))
+
+
+@pytest.fixture
+def rare_df(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
+    df.loc[0, "g"] = "rare"
+    return df
+
+
+def test_folds_learn_nothing_from_held_out_data(
+    rare_df: pd.DataFrame, weights: tuple[np.ndarray, np.ndarray]
+) -> None:
+    # Each fold's score must be what a model fit to its training rows alone
+    # scores on its held-out rows, as if the held-out rows were new data.
+    frequency, _ = weights
+    cv = RidgePathCV(Poisson(), n_folds=N_FOLDS).fit(
+        rare_df,
+        formula=STATEFUL_FORMULA,
+        frequency_weights=frequency,
+        alphas=ALPHAS,
+        tol=1e-12,
+        rng=np.random.default_rng(154),
+    )
+    assert cv.fold_frequency_weights_ is not None and cv.fold_deviances_ is not None
+    full_spec = learn_formula(STATEFUL_FORMULA, rare_df, penalized=True).rhs.model_spec
+    response = rare_df["y"].to_numpy().astype(np.float64)
+    for k, held_out in enumerate(cv.fold_frequency_weights_):
+        training = frequency - held_out
+        training_rows = np.flatnonzero(training > 0)
+        held_out_rows = np.flatnonzero(held_out > 0)
+        held_out_frame = rare_df.iloc[held_out_rows]
+        held_out_y = response[held_out_rows]
+        held_out_weights = held_out[held_out_rows]
+        path = RidgePath(Poisson()).fit(
+            rare_df.iloc[training_rows],
+            formula=STATEFUL_FORMULA,
+            frequency_weights=training[training_rows],
+            alphas=ALPHAS,
+            tol=1e-12,
+        )
+        # The same fold, with its encoding learned from all of the data: a
+        # leak the comparison above must be able to detect.
+        leaky_path = RidgePath(Poisson()).fit(
+            encode_design(full_spec, rare_df.iloc[training_rows]),
+            response[training_rows],
+            frequency_weights=training[training_rows],
+            alphas=ALPHAS,
+            tol=1e-12,
+        )
+        assert path.models_ is not None and leaky_path.models_ is not None
+        leaky_design = encode_design(full_spec, held_out_frame)
+        for j in range(len(ALPHAS)):
+            deviance = Poisson().deviance(
+                held_out_y, path.models_[j].predict(held_out_frame), held_out_weights
+            )
+            assert cv.fold_deviances_[k, j] == pytest.approx(
+                deviance / held_out_weights.sum(), rel=1e-8
+            )
+            leaky_deviance = Poisson().deviance(
+                held_out_y,
+                leaky_path.models_[j].predict(leaky_design),
+                held_out_weights,
+            )
+            assert cv.fold_deviances_[k, j] != pytest.approx(
+                leaky_deviance / held_out_weights.sum(), rel=1e-8
+            )
+
+
+def test_fold_encodings_ignore_held_out_rows(
+    rare_df: pd.DataFrame, weights: tuple[np.ndarray, np.ndarray]
+) -> None:
+    # Changing the rows a fold holds out whole, even to extreme values and
+    # unseen levels, leaves the encoding it learns unchanged.
+    frequency, _ = weights
+    folds = fold_frequency_weights(frequency, N_FOLDS, np.random.default_rng(154))
+    response = rare_df["y"].to_numpy()
+    held_out_whole = (folds[0] > 0) & (frequency - folds[0] == 0)
+    assert np.any(held_out_whole)
+    changed = rare_df.copy()
+    changed.loc[held_out_whole, "x1"] = 1000.0
+    changed.loc[held_out_whole, "x2"] = -1000.0
+    changed.loc[held_out_whole, "g"] = "new"
+    original_fold = cv_encoding_spec(
+        rare_df, STATEFUL_FORMULA, response, frequency, folds
+    ).folds[0]
+    changed_fold = cv_encoding_spec(
+        changed, STATEFUL_FORMULA, response, frequency, folds
+    ).folds[0]
+    assert original_fold.X_spec is not None and changed_fold.X_spec is not None
+    assert original_fold.X_spec.column_names == changed_fold.X_spec.column_names
+    np.testing.assert_array_equal(
+        original_fold.training_design(rare_df), changed_fold.training_design(rare_df)
+    )
+
+
+def test_fold_encoding_weights_partition_the_observations(
+    rare_df: pd.DataFrame, weights: tuple[np.ndarray, np.ndarray]
+) -> None:
+    frequency, _ = weights
+    folds = fold_frequency_weights(frequency, N_FOLDS, np.random.default_rng(154))
+    encoding = cv_encoding_spec(
+        rare_df, STATEFUL_FORMULA, rare_df["y"].to_numpy(), frequency, folds
+    )
+    for fold in encoding.folds:
+        np.testing.assert_array_equal(
+            fold.training_frequency_weights + fold.held_out_frequency_weights,
+            frequency,
+        )
 
 
 def test_unfit_cv_raises() -> None:

@@ -1,12 +1,14 @@
 """Fitting ridge regularization paths."""
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import Self
 
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
 
+from glm.encoding import encode_design, learn_formula
 from glm.families import ExponentialFamily, _generator
 from glm.glm import GLM, NON_FINITE_ESTIMATES_MESSAGE
 from glm.simulation import coefficient_table
@@ -19,6 +21,7 @@ from glm.types import (
     ColumnScales,
     DesignFrame,
     DesignMatrix,
+    DesignSpec,
     DevianceWeights,
     EffectiveDegreesOfFreedom,
     FoldDeviances,
@@ -30,6 +33,7 @@ from glm.types import (
     Offset,
     PrecisionWeights,
     ResponseVector,
+    RowIndices,
     Standardization,
     TermColumns,
     WorkingWeights,
@@ -290,7 +294,8 @@ class RidgePathCV:
     The folds are averaged weighted by their total held-out weight, so that each
     unit of weight counts equally (rather than each fold).
 
-    Each fold's RidgePath learns its own formula encoding, which has a couple of
+    Each fold learns its own formula encoding, from its training data alone,
+    before any model is fit (see cv_encoding_spec). This has a couple of
     consequences:
 
     For categorical variables, this means that a level of a categorical variable
@@ -474,25 +479,33 @@ class RidgePathCV:
             self.n_folds,
             _generator(rng),
         )
+
+        # Plan the cross validation fits:
+        # We record what each fold trains on and holds out, and learn its
+        # encoding from its training rows alone. No models are fit here, we
+        # return a data object encapsulating the computation to be done.
+        encoding = cv_encoding_spec(X, formula, response, frequency_weights, folds)
+
+        # Execute the cross validation fits:
+        # Fit each fold's full alpha path, and score it on the observations it
+        # held out. We've already constructed the model matrix specifications,
+        # so each RidgePath is fit to design matrices, without a formula. Each
+        # fold's design matrices only live for its own iteration.
         fold_weights = np.empty(self.n_folds)
         fold_deviances = np.empty((self.n_folds, len(grid)))
-        for k, held_out_frequency_weights in enumerate(folds):
-            training_frequency_weights = frequency_weights - held_out_frequency_weights
-            training_rows = np.flatnonzero(training_frequency_weights > 0)
-            held_out_rows = np.flatnonzero(held_out_frequency_weights > 0)
+        for k, fold in enumerate(encoding.folds):
+            training_rows = fold.training_rows()
+            held_out_rows = fold.held_out_rows()
             held_out_weights: DevianceWeights = (
-                held_out_frequency_weights[held_out_rows]
+                fold.held_out_frequency_weights[held_out_rows]
                 * precision_weights[held_out_rows]
             )
             fold_weights[k] = np.sum(held_out_weights)
             fold_path = RidgePath(self.family, standardize=self.standardize).fit(
-                _take_rows(X, training_rows),
-                None if y is None else y[training_rows],
-                formula,
-                X_names=X_names,
-                y_name=y_name,
+                fold.training_design(X),
+                encoding.response[training_rows],
                 offset=offset[training_rows],
-                frequency_weights=training_frequency_weights[training_rows],
+                frequency_weights=fold.training_frequency_weights[training_rows],
                 precision_weights=precision_weights[training_rows],
                 alphas=list(grid),
                 max_iter=max_iter,
@@ -500,18 +513,11 @@ class RidgePathCV:
                 validate_intercept=validate_intercept,
             )
             assert fold_path.models_ is not None
-            held_out_X = _take_rows(X, held_out_rows)
-            # For a formula model, predict re-encodes the held-out data frame
-            # for every model on the path, though the models all share the same
-            # encoding. Encoding once, with the first model's spec, would be
-            # more efficient but predict only accepts data frames for X when a
-            # model has a formula, so it would mean computing the predictions by
-            # hand here. We chose the straightforward version using predict and
-            # accepting the inefficiency; revisit if this is ever too slow.
+            held_out_design = fold.held_out_design(X)
             for j, model in enumerate(fold_path.models_):
-                μ = model.predict(held_out_X, offset=offset[held_out_rows])
+                μ = model.predict(held_out_design, offset=offset[held_out_rows])
                 deviance = self.family.deviance(
-                    response[held_out_rows], μ, held_out_weights
+                    encoding.response[held_out_rows], μ, held_out_weights
                 )
                 fold_deviances[k, j] = deviance / fold_weights[k]
 
@@ -539,6 +545,141 @@ class RidgePathCV:
         if self.path_ is None or self.alpha_min_ is None:
             raise ValueError("The cross-validation has not been fit.")
         return self.path_.model_at(self.alpha_min_)
+
+
+@dataclass(frozen=True)
+class FoldEncoding:
+    """Encapsulates what a single cross-validation fold trains on and holds out,
+    and how it encodes its data.
+
+    A row is absent from the fold's training data, or from its held-out data,
+    when its frequency weight there is zero, so the weights alone describe the
+    row set of a fold.
+
+    We note: the absent rows must still be removed from the training data before
+    learning the encoding: formulaic learns categorical levels and transform
+    state from every row it is given, whatever the row's weight.
+
+    Attributes
+    ----------
+    training_frequency_weights: array, shape (n_samples, )
+        How many of each row's observations the fold trains on.
+
+    held_out_frequency_weights: array, shape (n_samples, )
+        How many of each row's observations the fold holds out.
+
+    X_spec: formulaic.ModelSpec or None
+        The design specs learned from the fold's training rows alone, or None
+        when the data is already a design matrix.
+    """
+
+    training_frequency_weights: FrequencyWeights
+    held_out_frequency_weights: FrequencyWeights
+    X_spec: DesignSpec | None
+
+    def training_rows(self) -> RowIndices:
+        """The rows with some observations in the fold's training data."""
+        return np.flatnonzero(self.training_frequency_weights > 0)
+
+    def held_out_rows(self) -> RowIndices:
+        """The rows with some observations held out by the fold."""
+        return np.flatnonzero(self.held_out_frequency_weights > 0)
+
+    def training_design(self, X: DesignMatrix | DesignFrame) -> DesignMatrix:
+        """The design matrix of the fold's training rows.
+
+        Parameters
+        ----------
+        X: array, shape (n_samples, n_features) or pd.DataFrame
+            The full data, as passed to RidgePathCV.fit.
+        """
+        return self._design(X, self.training_rows())
+
+    def held_out_design(self, X: DesignMatrix | DesignFrame) -> DesignMatrix:
+        """The design matrix of the fold's held-out rows, encoded with the
+        specs learned from its training rows.
+
+        Parameters
+        ----------
+        X: array, shape (n_samples, n_features) or pd.DataFrame
+            The full data, as passed to RidgePathCV.fit.
+        """
+        return self._design(X, self.held_out_rows())
+
+    def _design(self, X: DesignMatrix | DesignFrame, rows: RowIndices) -> DesignMatrix:
+        if self.X_spec is None:
+            assert isinstance(X, np.ndarray)
+            design: DesignMatrix = X[rows]
+            return design
+        assert isinstance(X, pd.DataFrame)
+        return encode_design(self.X_spec, X.iloc[rows])
+
+
+@dataclass(frozen=True)
+class CVEncodingSpec:
+    """Everything a cross-validation needs to encode each of its folds' data.
+
+    Attributes
+    ----------
+    response: array, shape (n_samples, )
+        The response of every row, encoded once from the full data.
+
+    folds: list of FoldEncoding
+        What each fold trains on and holds out, and a specification of its data
+        encoding.
+    """
+
+    response: ResponseVector
+    folds: list[FoldEncoding]
+
+
+def cv_encoding_spec(
+    X: DesignMatrix | DesignFrame,
+    formula: Formula | None,
+    response: ResponseVector,
+    frequency_weights: FrequencyWeights,
+    held_out_frequency_weights: FoldFrequencyWeights,
+) -> CVEncodingSpec:
+    """Plan a cross-validation's encodings: each fold's training and held-out
+    weights, and the design specs learned from its training rows alone.
+
+    Parameters
+    ----------
+    X: array, shape (n_samples, n_features) or pd.DataFrame
+        The full data.
+
+    formula: str or None
+        The model's formula, or None when X is already a design matrix.
+
+    response: array, shape (n_samples, )
+        The response of every row.
+
+    frequency_weights: array, shape (n_samples, )
+        How many observations each row stands for.
+
+    held_out_frequency_weights: array, shape (n_folds, n_samples)
+        How many of each row's observations each fold holds out; see
+        fold_frequency_weights.
+
+    Returns
+    -------
+    encoding: CVEncodingSpec
+        The plan for every fold.
+    """
+    folds: list[FoldEncoding] = []
+    for held_out_weights in held_out_frequency_weights:
+        training_weights = frequency_weights - held_out_weights
+        X_spec: DesignSpec | None = None
+        if formula:
+            assert isinstance(X, pd.DataFrame)
+            training_frame = X.iloc[np.flatnonzero(training_weights > 0)]
+            # Every model on a ridge path is penalized. The encoded matrices
+            # are discarded: the plan keeps only the learned specs.
+            X_spec = learn_formula(
+                formula, training_frame, penalized=True
+            ).rhs.model_spec
+        folds.append(FoldEncoding(training_weights, held_out_weights, X_spec))
+    return CVEncodingSpec(response, folds)
 
 
 def fold_frequency_weights(
@@ -666,15 +807,6 @@ def default_alphas(
         n_alphas,
     )
     return grid
-
-
-def _take_rows(
-    X: DesignMatrix | DesignFrame, rows: npt.NDArray[np.intp]
-) -> DesignMatrix | DesignFrame:
-    """The given rows of a design matrix or data frame."""
-    if isinstance(X, pd.DataFrame):
-        return X.iloc[rows]
-    return X[rows]
 
 
 def _cv_standard_error(
