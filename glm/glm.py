@@ -1,13 +1,12 @@
 import warnings
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Self
+from typing import Self
 
-import formulaic
-from formulaic.errors import DataMismatchWarning
 import numpy as np
 import pandas as pd
 
+from glm.encoding import encode_design, encode_response, learn_formula
 from glm.families import ExponentialFamily, TestDistribution
 from glm.standardize import Standardizer
 from glm.types import (
@@ -388,23 +387,7 @@ class GLM:
                     f"X must be a DataFrame if a formula is "
                     f"supplied, got a {type(X)}"
                 )
-            # Raise on missing values rather than dropping rows, which would
-            # silently misalign the data with any offset or sample weights.
-            matrices = formulaic.model_matrix(
-                formula,
-                X,
-                output="numpy",
-                na_action="raise",
-                # Regularized models encode every level of a categorical
-                # variable, rather than dropping a reference level, to ensure
-                # that the penalty treats all levels alike. This does not cause
-                # any rank defficiency, the penalty keeps the fit well defined.
-                ensure_full_rank=not self._is_regularized(),
-            )
-            if not isinstance(matrices, formulaic.ModelMatrices):
-                raise ValueError(
-                    f"Formula {formula!r} must specify a response, e.g. 'y ~ x'."
-                )
+            matrices = learn_formula(formula, X, penalized=self._is_regularized())
             self.formula = formula
             self.X_spec = matrices.rhs.model_spec
             self.y_spec = matrices.lhs.model_spec
@@ -666,7 +649,7 @@ class GLM:
         if self.X_spec is not None:
             if not isinstance(X, pd.DataFrame):
                 raise self._X_type_error(X)
-            return self._make_rhs_matrix(X)
+            return encode_design(self.X_spec, X)
         if not isinstance(X, np.ndarray):
             raise self._X_type_error(X)
         return X
@@ -705,7 +688,9 @@ class GLM:
                 )
             if not isinstance(X, pd.DataFrame):
                 raise self._X_type_error(X)
-            return self._make_lhs_vector(X)
+            # A formula fit learns both specs together.
+            assert self.y_spec is not None
+            return encode_response(self.y_spec, X)
         if not isinstance(y, np.ndarray):
             raise TypeError(
                 f"y must be a numpy array for a model fit without a formula, "
@@ -962,39 +947,6 @@ class GLM:
         hessian[idxs, idxs] += self.alpha
         return hessian
 
-    def _make_rhs_matrix(self, X: DesignFrame) -> DesignMatrix:
-        if self.X_spec is None:
-            raise ValueError("Model was not fit with a formula.")
-        # formulaic encodes a level it didn't see in training as all zero
-        # indicators. With reference coding (formulaic's ensure_full_rank),
-        # that's the reference level's encoding, so an unseen level would be
-        # silently predicted as the reference level. Check before encoding,
-        # so the error isn't preceded by formulaic's own warning.
-        if self.X_spec.ensure_full_rank:
-            unseen = unseen_categories(self.X_spec, X)
-            if unseen:
-                described = "; ".join(
-                    f"{factor}: {levels}" for factor, levels in unseen.items()
-                )
-                raise ValueError(
-                    f"X contains categorical levels the model wasn't fit with "
-                    f"({described}). An unpenalized model encodes each level "
-                    f"relative to a reference level, so it can't predict for "
-                    f"levels it hasn't seen: refit with them, or merge them into "
-                    f"levels the model has seen."
-                )
-        with warnings.catch_warnings():
-            # With every level encoded, as for penalized models, all zero
-            # indicators for an unseen level are intended (see predict), so
-            # formulaic's warning that they will skew the results is not needed.
-            warnings.simplefilter("ignore", DataMismatchWarning)
-            # Raise on missing values rather than dropping rows, which would
-            # silently misalign the design matrix with the rows of X.
-            design_matrix: DesignMatrix = np.asarray(
-                self.X_spec.get_model_matrix(X, output="numpy", na_action="raise")
-            )
-        return design_matrix
-
     def _X_type_error(self, X: object) -> TypeError:
         if self.X_spec is not None:
             return TypeError(
@@ -1006,42 +958,11 @@ class GLM:
             f"got a {type(X)}"
         )
 
-    def _make_lhs_vector(self, X: DesignFrame) -> ResponseVector:
-        if self.y_spec is None:
-            raise ValueError("Model was not fit with a formula.")
-        response: ResponseVector = np.asarray(
-            self.y_spec.get_model_matrix(X, output="numpy", na_action="raise")
-        ).squeeze(axis=1)
-        return response
-
     def _copy_formula(self, other: "GLM") -> None:
         """Inject another model's formula and specs, so that this model, fit to
         that model's design matrix, can make predictions from data frames."""
         self.formula = other.formula
         self.X_spec, self.y_spec = other.X_spec, other.y_spec
-
-
-def unseen_categories(spec: DesignSpec, X: DesignFrame) -> dict[str, list[Any]]:
-    """The levels of each categorical variable in X that the model's learned
-    spec has not yet seen, keyed by the variable's expression in the formula."""
-    unseen = {}
-    for factor, (kind, state) in spec.encoder_state.items():
-        if kind.value != "categorical":
-            continue
-        # Let formulaic evaluate the factor's expression on X, so that a
-        # categorical variable is handled however it appears in the formula.
-        observed_spec = formulaic.model_matrix(f"0 + {factor}", X).model_spec
-        if observed_spec is None:
-            raise ValueError(f"Could not evaluate the factor {factor} on X.")
-        _, observed_state = observed_spec.encoder_state[factor]
-        new_levels = [
-            level
-            for level in observed_state["categories"]
-            if level not in state["categories"]
-        ]
-        if new_levels:
-            unseen[str(factor)] = new_levels
-    return unseen
 
 
 def has_converged(

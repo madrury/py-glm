@@ -74,6 +74,10 @@ type FoldFrequencyWeights = npt.NDArray[np.float64]
 shape (n_folds, n): each column sums to the row's frequency weight, so a row
 standing for several observations can be split across folds."""
 
+type RowIndices = npt.NDArray[np.intp]
+"""Positions of a subset of the rows of the data, such as those a
+cross-validation fold trains on."""
+
 type FoldWeights = npt.NDArray[np.float64]
 """The total deviance weight held out in each cross-validation fold, shape
 (n_folds,)."""
