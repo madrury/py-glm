@@ -178,3 +178,43 @@ def test_warm_start_is_on_the_original_scale(
         X_without_constant, response, warm_start=model.coef_, max_iter=1
     )
     np.testing.assert_allclose(refit.coef_, model.coef_, rtol=1e-8)
+
+
+def _fit_with_standardizer(
+    X: np.ndarray,
+    y: np.ndarray,
+    standardizer: Standardizer,
+    weights: np.ndarray | None = None,
+) -> GLM:
+    return GLM(Poisson(), alpha=2.0)._fit(
+        X,
+        y,
+        warm_start=None,
+        offset=None,
+        frequency_weights=weights,
+        precision_weights=None,
+        max_iter=100,
+        tol=0.1**5,
+        validate_intercept=True,
+        standardizer=standardizer,
+    )
+
+
+def test_supplied_standardizer_gives_the_same_fit(
+    X: np.ndarray, weights: np.ndarray
+) -> None:
+    y = np.random.default_rng(154).poisson(np.exp(0.1 * X[:, 1]))
+    learned = GLM(Poisson(), alpha=2.0).fit(X, y, frequency_weights=weights)
+    standardizer = Standardizer("continuous").fit(X, weights)
+    supplied = _fit_with_standardizer(X, y, standardizer, weights)
+    np.testing.assert_array_equal(supplied.coef_, learned.coef_)
+
+
+def test_mismatched_standardizer_raises(X: np.ndarray) -> None:
+    y = np.random.default_rng(154).poisson(np.exp(0.1 * X[:, 1]))
+    with pytest.raises(ValueError, match="standardizes 'all' columns"):
+        _fit_with_standardizer(X, y, Standardizer("all").fit(X))
+    with pytest.raises(ValueError, match="fit to 4 columns"):
+        _fit_with_standardizer(X, y, Standardizer("continuous").fit(X[:, :4]))
+    with pytest.raises(ValueError, match="has not been fit"):
+        _fit_with_standardizer(X, y, Standardizer("continuous"))

@@ -5,7 +5,6 @@ from dataclasses import dataclass
 from typing import Self
 
 import numpy as np
-import numpy.typing as npt
 import pandas as pd
 
 from glm.encoding import encode_design, learn_formula
@@ -170,34 +169,48 @@ class RidgePath:
         precision_weights = check_weights(
             "precision_weights", response, precision_weights
         )
+        deviance_weights: DevianceWeights = frequency_weights * precision_weights
+        has_intercept = has_intercept_column(design)
+
+        # Learn the standardization once from this path's training data.
+        # Every model on the path, the default grid calculation, and the
+        # effective degrees of freedom calculation of this grid, all use this
+        # one standardizer.
+        standardizer = Standardizer(self.standardize).fit(design, frequency_weights)
+        standardized_design = standardizer.transform(design)
         grid: AlphaGrid
         if alphas is None:
             grid = default_alphas(
                 self.family,
-                design,
+                standardized_design,
                 response,
-                frequency_weights=frequency_weights,
-                precision_weights=precision_weights,
-                standardize=self.standardize,
+                deviance_weights=deviance_weights,
+                has_intercept=has_intercept,
                 n_alphas=n_alphas,
             )
         else:
             grid = np.sort(np.asarray(alphas, dtype=np.float64))[::-1]
 
-        # Main Loop: Fit over the grid of alphas.
+        # Execute: fit over the grid of alphas.
         models: list[GLM] = []
         warm_start: CoefficientVector | None = None
         for alpha in grid:
+            # We fit each model in the path to the already encoded data,
+            #
+            # Note: we don't supply a formula herewhen constructing the object.
+            # After fitting we manually inject the correct formula and specs so
+            # that prediction on a new dataset can encode data correctly.
             model = GLM(self.family, alpha=float(alpha), standardize=self.standardize)
-            # Here we fit each model in the path to the already encoded data,
-            # note we don't supply a formula here so the data is not being
-            # re-encoded. After fitting we manually inject the correct formula
-            # and specs so that prediction is done correctly.
-            model.fit(
+            model._prepare_data(
                 design,
                 response,
+                formula=None,
                 X_names=template.X_names,
                 y_name=template.y_name,
+            )
+            model._fit(
+                design,
+                response,
                 warm_start=warm_start,
                 offset=offset,
                 frequency_weights=frequency_weights,
@@ -205,6 +218,7 @@ class RidgePath:
                 max_iter=max_iter,
                 tol=tol,
                 validate_intercept=validate_intercept,
+                standardizer=standardizer,
             )
             model._copy_formula(template)
             models.append(model)
@@ -213,26 +227,18 @@ class RidgePath:
         self.alphas_ = grid
         self.models_ = models
         self.term_columns_ = _term_columns(template, design)
-
-        # We have alphas, now compute their implied effective degrees of
-        # freedom. To do so, we need the standardized data that was used to fit
-        # the ridge regressions, since we need the eigenvalues of its
-        # information matrix.
-        #
-        # This seems a little wasteful, since we've already standardized the
-        # data when fitting the model. We chose the duplicated effort for a
-        # clean separation of concerns.
-        standardizer = Standardizer(self.standardize).fit(design, frequency_weights)
         self.scales_ = standardizer.scales_
-        deviance_weights: DevianceWeights = frequency_weights * precision_weights
+        # The penalty acts on the standardized coefficients, so the effective
+        # degrees of freedom need the eigenvalues of the information matrix of
+        # the standardized columns.
         self.df_ = _effective_degrees_of_freedom(
             models,
             grid,
             design,
-            standardizer.transform(design),
+            standardized_design,
             np.zeros(design.shape[0]) if offset is None else offset,
             deviance_weights,
-            has_intercept_column(design),
+            has_intercept,
         )
         return self
 
@@ -751,12 +757,11 @@ def fold_frequency_weights(
 
 def default_alphas(
     family: ExponentialFamily,
-    X: DesignMatrix,
+    Z: DesignMatrix,
     y: ResponseVector,
     *,
-    frequency_weights: FrequencyWeights | None = None,
-    precision_weights: PrecisionWeights | None = None,
-    standardize: Standardization = "continuous",
+    deviance_weights: DevianceWeights,
+    has_intercept: bool,
     n_alphas: int = 100,
 ) -> AlphaGrid:
     """A grid of penalty strengths spanning the whole regularization path.
@@ -782,21 +787,46 @@ def default_alphas(
     every level, which sum to the intercept, are skipped: the intercept
     absorbs those directions, so the penalty never needs to resolve them.
     Offsets are ignored, which is harmless for choosing the grid's range.
+
+    Parameters
+    ----------
+    family: ExponentialFamily
+        The family of the models on the path.
+
+    Z: array, shape (n_samples, n_coefficients)
+        The standardized design matrix, i.e. the columns the path's penalty
+        acts on (see Standardizer). With standardize="none", the design matrix
+        itself.
+
+    y: array, shape (n_samples, )
+        The response.
+
+    deviance_weights: array, shape (n_samples, )
+        Each row's weight in the deviance: its frequency weight times its
+        precision weight.
+
+    has_intercept: bool
+        Is column 0 of the design matrix an intercept? Its direction is then
+        profiled out of the information matrix, as it is not penalized.
+
+    n_alphas: integer, at least 2
+        The count of penalty strengths in the grid.
+
+    Returns
+    -------
+    alphas: array, shape (n_alphas, )
+        The grid, in decreasing order.
     """
-    frequency_weights = check_weights("frequency_weights", y, frequency_weights)
-    precision_weights = check_weights("precision_weights", y, precision_weights)
-    deviance_weights: DevianceWeights = frequency_weights * precision_weights
     # The intercept-only model fits the weighted mean response everywhere.
-    μ = np.full(X.shape[0], np.average(y, weights=deviance_weights))
+    μ = np.full(Z.shape[0], np.average(y, weights=deviance_weights))
     with np.errstate(divide="ignore"):
         η = family.link(μ)
     if not np.all(np.isfinite(η)):
         raise ValueError(NON_FINITE_ESTIMATES_MESSAGE)
-    Z = Standardizer(standardize).fit(X, frequency_weights).transform(X)
     eigenvalues = _profiled_eigenvalues(
         Z,
         family.working_weights(η, μ, deviance_weights),
-        has_intercept_column(X),
+        has_intercept,
     )
     nonzero = eigenvalues[eigenvalues > 1e-10 * eigenvalues.max()]
     if nonzero.size == 0:

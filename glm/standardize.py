@@ -63,8 +63,9 @@ class Standardizer:
         """Learn each column's center and scale, as its mean and standard
         deviation, weighted by the frequency weights.
 
-        Precision weights describe how precise each row's response is, not how
-        common its predictors are, so they don't play a role.
+        Precision weights describe how precise each row's response is,
+        not how common its predictors are, so they don't play a role in
+        standardization.
         """
         weights = (
             np.ones(X.shape[0]) if frequency_weights is None else frequency_weights
@@ -74,19 +75,21 @@ class Standardizer:
 
         # Construct a mask indicating which columns to standardize.
         has_intercept = has_intercept_column(X)
-        transformed = np.full(X.shape[1], self.standardize != "none")
-        transformed &= sds > 0
+        to_standardize = np.full(X.shape[1], self.standardize != "none")
+        to_standardize &= sds > 0
+        # Don't standardize binary features when requesting only continuous
+        # fetures be standardized.
         if self.standardize == "continuous":
             is_indicator = np.all((X == 0) | (X == 1), axis=0)
-            transformed &= ~is_indicator
+            to_standardize &= ~is_indicator
+        # Never standardize the intercept.
         if has_intercept:
-            transformed[0] = False
-
+            to_standardize[0] = False
         # Only center when the model contains an intercept term, otherwise
         # centering does not leave predictions invariant.
-        centered = transformed & has_intercept
-        self.centers_ = np.where(centered, means, 0.0)
-        self.scales_ = np.where(transformed, sds, 1.0)
+        to_center = to_standardize & has_intercept
+        self.centers_ = np.where(to_center, means, 0.0)
+        self.scales_ = np.where(to_standardize, sds, 1.0)
         return self
 
     def transform(self, X: DesignMatrix) -> DesignMatrix:
@@ -131,3 +134,23 @@ class Standardizer:
         if self.centers_ is None or self.scales_ is None:
             raise ValueError("The Standardizer has not been fit.")
         return self.centers_, self.scales_
+
+
+def check_standardizer(
+    standardizer: Standardizer, standardize: Standardization, X: DesignMatrix
+) -> None:
+    """Check that a standardizer supplied to a GLM fit is consistent with the
+    model's metadata. Check that the centers learned by the standardizer align
+    with the columns of a design matrix.
+    """
+    centers, _ = standardizer._fitted()
+    if standardizer.standardize != standardize:
+        raise ValueError(
+            f"The standardizer standardizes {standardizer.standardize!r} columns, "
+            f"but the model standardizes {standardize!r} columns."
+        )
+    if centers.shape[0] != X.shape[1]:
+        raise ValueError(
+            f"The standardizer was fit to {centers.shape[0]} columns, but X has "
+            f"{X.shape[1]} columns."
+        )

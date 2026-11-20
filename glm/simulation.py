@@ -188,7 +188,9 @@ class Simulation:
                 "frequency weights. Use the non-parametric bootstrap, which "
                 "resamples the observations they stand for."
             )
-        fit_inputs.check(offset, None, precision_weights)
+        fit_inputs.check(
+            offset, frequency_weights=None, precision_weights=precision_weights
+        )
         if (
             isinstance(self.glm.family, Bernoulli)
             and not fit_inputs.has_precision_weights

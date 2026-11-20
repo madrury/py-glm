@@ -8,7 +8,7 @@ import pandas as pd
 
 from glm.encoding import encode_design, encode_response, learn_formula
 from glm.families import ExponentialFamily, TestDistribution
-from glm.standardize import Standardizer
+from glm.standardize import Standardizer, check_standardizer
 from glm.types import (
     CoefficientMask,
     CoefficientSummary,
@@ -64,10 +64,11 @@ REGULARIZED_INFERENCE_MESSAGE = (
 
 @dataclass(frozen=True)
 class FitInputs:
-    """Records which optional inputs a model was fit with, so that a bootstrap
-    can check it is given the same ones. A bootstrap refits the model to data
-    like the original's, so leaving out an offset or weights used during fitting
-    with would silently change the model being bootstrapped.
+    """Records which optional inputs were used at the time a model was fit. This
+    is used so that a bootstrap resapling can validate it is given the same
+    ones. A bootstrap refits the model to data like the original's, so leaving
+    out an offset or weights used during fitting with would silently change the
+    model being bootstrapped.
 
     The has_binary_response flag records whether every response was 0 or 1,
     which decides whether precision weights are needed to simulate a Bernoulli
@@ -429,10 +430,17 @@ class GLM:
         max_iter: int,
         tol: float,
         validate_intercept: bool,
+        standardizer: Standardizer | None = None,
     ) -> Self:
         """Fit the GLM model to some training data.
 
         This method expects X and y to be numpy arrays.
+
+        A caller fitting several penalized models to the same X, such as a
+        RidgePath fitting to the same data with various alphas, may pass a
+        Standardizer. This allows learning a standardizer only once.
+
+        If no standardizer is passed, one is learned here.
         """
         check_commensurate(X, y)
         check_finite("X", X)
@@ -474,12 +482,15 @@ class GLM:
         # Penalized fits work on standardized columns, so that the penalty does
         # not depend on the predictors' units. Unpenalized fits are unchanged
         # by standardizing, so skip it for them.
-        standardizer = None
+        active_standardizer: Standardizer | None = None
         design, β = X, warm_start
         if self._is_regularized() and self.standardize != "none":
-            standardizer = Standardizer(self.standardize).fit(X, frequency_weights)
-            design = standardizer.transform(X)
-            β = standardizer.coef_to_standardized(warm_start)
+            if standardizer is None:
+                standardizer = Standardizer(self.standardize).fit(X, frequency_weights)
+            check_standardizer(standardizer, self.standardize, X)
+            active_standardizer = standardizer
+            design = active_standardizer.transform(X)
+            β = active_standardizer.coef_to_standardized(warm_start)
         # Begin main fitting loop:
         η = design @ β + offset
         μ = family.inv_link(η)
@@ -500,14 +511,16 @@ class GLM:
                 gradient = gradient + self._penalty_gradient(β, penalized_coefficients)
                 hessian = self._add_penalty_hessian(hessian, penalized_coefficients)
             step = np.linalg.solve(hessian, gradient)
-            # Check before stepping, as the predicted decrease describes the
-            # current β, but take the step either way: at convergence it is
-            # tiny, and refines the estimate.
+            # Check before stepping, as the convergence check uses predicted
+            # decrease, which is the first order estimate of decrease using the
+            # current β. Take the step either way: at convergence it is tiny,
+            # and refines the estimate.
             is_converged = has_converged(gradient, step, penalized_deviance, tol)
             β = β - step
-            # Refresh the fit at the new coefficients, so that the next
-            # iteration, and the deviance and information matrix stored after
-            # the loop, all describe the β we return.
+            # Update the fit values using the new coefficients for the next run
+            # throught the loop. In case we terminate: the coefficients and
+            # penalized deviance are the correct final values. The deviance is
+            # used later to update to the final information matrix.
             η = design @ β + offset
             μ = family.inv_link(η)
             dμ = family.d_inv_link(η, μ)
@@ -517,8 +530,8 @@ class GLM:
             )
             n_iter += 1
 
-        if standardizer is not None:
-            β = standardizer.coef_to_original(β)
+        if active_standardizer is not None:
+            β = active_standardizer.coef_to_original(β)
         if not np.all(np.isfinite(β)):
             raise ValueError(NON_FINITE_ESTIMATES_MESSAGE)
         self.coef_ = β

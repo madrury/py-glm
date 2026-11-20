@@ -100,9 +100,11 @@ def test_default_alphas_span_the_eigenvalues() -> None:
     x2 = 0.95 * x1 + np.sqrt(1 - 0.95**2) * rng.normal(size=N)
     X = np.column_stack([np.ones(N), x1, x2])
     y = X @ np.array([1.0, 2.0, -1.0]) + rng.normal(size=N)
-    Z = Standardizer("continuous").fit(X).transform(X)[:, 1:]
-    eigenvalues = np.linalg.eigvalsh(Z.T @ Z)
-    alphas = default_alphas(Gaussian(), X, y)
+    Z = Standardizer("continuous").fit(X).transform(X)
+    eigenvalues = np.linalg.eigvalsh(Z[:, 1:].T @ Z[:, 1:])
+    alphas = default_alphas(
+        Gaussian(), Z, y, deviance_weights=np.ones(N), has_intercept=True
+    )
     assert alphas[0] == pytest.approx(GRID_MARGIN * eigenvalues.max())
     assert alphas[-1] == pytest.approx(eigenvalues.min() / GRID_MARGIN)
 
@@ -196,3 +198,23 @@ def test_scales(arrays: tuple[np.ndarray, np.ndarray]) -> None:
     )
     unstandardized = RidgePath(Poisson(), standardize="none").fit(X, y, n_alphas=5)
     np.testing.assert_array_equal(unstandardized.scales_, 1.0)
+
+
+def test_path_learns_its_standardizer_once(
+    arrays: tuple[np.ndarray, np.ndarray], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The default grid, every model on the path, and the effective degrees of
+    # freedom share one standardizer, learned from the path's training data.
+    fits = []
+    original_fit = Standardizer.fit
+
+    def counting_fit(
+        self: Standardizer, X: np.ndarray, frequency_weights: np.ndarray | None = None
+    ) -> Standardizer:
+        fits.append(X)
+        return original_fit(self, X, frequency_weights)
+
+    monkeypatch.setattr(Standardizer, "fit", counting_fit)
+    RidgePath(Poisson()).fit(*arrays, n_alphas=10)
+    assert len(fits) == 1
+    np.testing.assert_array_equal(fits[0], arrays[0])
