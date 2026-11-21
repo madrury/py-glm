@@ -14,7 +14,6 @@ from glm.types import (
     InverseLinkDerivative,
     LinearPredictor,
     MeanVector,
-    ReferenceDistribution,
     ResponseVector,
     DevianceWeights,
     PrecisionWeights,
@@ -22,16 +21,7 @@ from glm.types import (
     UnitDeviances,
     VarianceVector,
 )
-
-
-@dataclass(frozen=True)
-class TestDistribution:
-    """The reference distribution for a family's coefficient tests: the
-    statistic's name, "t" or "z", and its distribution under the hypothesis
-    that a coefficient is zero."""
-
-    statistic: str
-    distribution: ReferenceDistribution
+from glm.hypothesis import TestDistribution
 
 
 class ExponentialFamily(ABC):
@@ -102,9 +92,9 @@ class ExponentialFamily(ABC):
         return f"{type(self).__name__}()"
 
     def coefficient_test(self, residual_df: float) -> TestDistribution:
-        """The reference distribution of a coefficient's Wald test statistic,
-        estimate / standard error, under the hypothesis that the true
-        coefficient is zero.
+        """The reference distribution of a coefficient's Wald test statistic for
+        a non-zero single coefficient.  The test statistic is estimate /
+        standard error.
 
         A family with an estimated dispersion uses Student's t distribution with
         the residual degrees of freedom, n - p, accounting for the uncertainty
@@ -112,10 +102,34 @@ class ExponentialFamily(ABC):
         others it's the standard approximation. A family with a fixed dispersion
         uses the standard normal: its statistics are asymptotically normal, and
         nothing extra was estimated. This is the convention of R's summary.glm.
+
+        This *is* a special case of joint test with a single constraint, but we
+        choose to keep it seperate since it is common and conventional.
         """
         if self.has_dispersion:
-            return TestDistribution("t", sts.t(df=residual_df))
-        return TestDistribution("z", sts.norm())
+            return TestDistribution("t", "t", sts.t(df=residual_df))
+        return TestDistribution("z", "gaussian", sts.norm())
+
+    def joint_test(self, q: int, residual_dof: float) -> TestDistribution:
+        """The reference distribution of a test of a linear hypothesis, i.e. a
+        null hypothesis of the shape Cβ = c.
+
+
+        A family with an estimated dispersion uses the F distribution
+        distribution with the numerator degrees of freedom q (the number of
+        linearly independent constraints), and denominator degrees of freedom n
+        - p. A family with no dispersion uses the χ² distribution with q degrees of freedom
+
+        In the χ² case the test statistic is:
+
+            W = (Cβ̂ − c)ᵗ (C V Cᵗ)⁻¹ (Cβ̂ − c)
+
+        where V is the estimated infromation matrix. In the F case, the test
+        statistic is W/q.
+        """
+        if self.has_dispersion:
+            return TestDistribution("W/q", "F", sts.f(dfn=q, dfd=residual_dof))
+        return TestDistribution("W", "χ²", sts.chi2(df=q))
 
     @abstractmethod
     def link(self, mu: MeanVector) -> LinearPredictor:

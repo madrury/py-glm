@@ -1,10 +1,19 @@
-from collections.abc import Sequence
 from typing import Any, get_args
+from collections.abc import Sequence
+from itertools import pairwise
 
 import numpy as np
 import numpy.typing as npt
+from formulaic.parser.algos.tokenize import tokenize
+from formulaic.parser.types import Token
 
-from glm.types import DesignMatrix, Offset, ResponseVector, Standardization
+from glm.types import (
+    DesignMatrix,
+    Offset,
+    ResponseVector,
+    Standardization,
+    ConstraintFormula,
+)
 
 STANDARDIZATIONS: tuple[str, ...] = get_args(Standardization.__value__)
 
@@ -128,6 +137,24 @@ def check_alphas(alphas: Sequence[float] | None, n_alphas: int) -> None:
             raise ValueError("alphas must be a non-empty sequence of positives.")
     else:
         check_integer_at_least("n_alphas", n_alphas, 2)
+
+
+def check_constraint_formula(formula: ConstraintFormula) -> None:
+    tokens = tokenize(formula)
+    ts: list[str] = []
+    for t in tokens:
+        if t.kind is Token.Kind.OPERATOR and t.token in {",", "="}:
+            ts.append(t.token)
+    # Two equals signs in a row with no , in between them.
+    is_bad = any(a == b == "=" for a, b in pairwise(ts))
+    if is_bad:
+        raise ValueError(
+            f"Constraint formula {formula!r} chains = signs within a single"
+            " constraint."
+            " Formulaic creates the incorrect constraint matrix in this case."
+            " This is common with abbreviations like 'x = y = z',"
+            " write these as two equations like 'x = y, y = z'."
+        )
 
 
 def default_X_names(X: DesignMatrix) -> list[str]:

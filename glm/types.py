@@ -2,6 +2,13 @@
 
 Shapes are given in terms of n, the number of observations, and p, the number
 of coefficients in the model (including the intercept).
+
+Conventions for the shape of an array:
+
+  - n: The number of rows in a training array.
+  - p: The number of columns in a training array, also the number of
+  coefficients in a model.
+  - q: The number of contraint equations in a test of a linear hypothesis.
 """
 
 from collections.abc import Mapping, Sequence
@@ -22,7 +29,7 @@ type DesignMatrix = npt.NDArray[np.float64]
 type DesignFrame = pd.DataFrame
 """A data frame of raw variables, turned into a design matrix by a formula."""
 
-type Formula = str
+type ModelFormula = str
 """A model formula, e.g. "y ~ x1 + x2"."""
 
 type DesignSpec = formulaic.ModelSpec
@@ -171,6 +178,12 @@ type ReferenceDistribution = "rv_continuous_frozen"
 """The distribution of a coefficient's test statistic under the hypothesis
 that the coefficient is zero: a frozen scipy.stats distribution."""
 
+type ReferenceDistributionName = Literal["gaussian", "t", "χ²", "F"]
+"""The string name of the statistic distriubtion of a hypothesis test."""
+
+type TestStatisticName = Literal["z", "t", "W", "W/q"]
+"""The string name of a test statistic."""
+
 type CoefficientSummary = pd.DataFrame
 """A table of a fit model's coefficients, one row per coefficient: their
 estimates, standard errors, test statistics, p-values, and confidence
@@ -181,6 +194,24 @@ type UnitDeviances = npt.NDArray[np.float64]
 
 type Deviance = float
 """A (possibly penalized) deviance."""
+
+# Hypothesis test specification.
+type ConstraintMatrix = npt.NDArray[np.float64]
+"""The left hand side of a linear constraint equation Cβ = c, shape (q, p)."""
+
+type ConstraintValues = npt.NDArray[np.float64]
+"""The right hand side of a linear constraint equation Cβ = c, shape (q,)."""
+
+type NestingMatrix = npt.NDArray[np.float64]
+"""Expresses the nesting of one null model within another parent model. If  X₀
+is the design of the null model, and X the design of the parent, than the matrix
+A with X₀ = X A. For example, if X₀ simply drops some columns, than each column
+of A is all zeros except for a single one. Shape (p, p₀)."""
+
+type ConstraintFormula = str
+"""A fomrula describing the linear constraint in a hypothesis test. For example
+x1 = 0 is the standard test a true coefficient is zero, x1 - x2 is a
+contrast."""
 
 # Simulation.
 type CategoricalLevels = int | Sequence[float] | Sequence[str] | Mapping[str, float]

@@ -7,7 +7,8 @@ import numpy as np
 import pandas as pd
 
 from glm.encoding import encode_design, encode_response, learn_formula
-from glm.families import ExponentialFamily, TestDistribution
+from glm.families import ExponentialFamily
+from glm.hypothesis import TestDistribution
 from glm.standardize import Standardizer, check_standardizer
 from glm.types import (
     CoefficientMask,
@@ -21,7 +22,7 @@ from glm.types import (
     DevianceGradient,
     DevianceHessian,
     DevianceWeights,
-    Formula,
+    ModelFormula,
     FrequencyWeights,
     InformationMatrix,
     InverseLinkDerivative,
@@ -244,7 +245,7 @@ class GLM:
         self.family = family
         self.alpha = alpha
         self.standardize: Standardization = standardize
-        self.formula: Formula | None = None
+        self.formula: ModelFormula | None = None
         self.X_spec: DesignSpec | None = None
         self.y_spec: DesignSpec | None = None
         self.X_names: list[str] | None = None
@@ -260,7 +261,7 @@ class GLM:
         self,
         X: DesignMatrix | DesignFrame,
         y: ResponseVector | None = None,
-        formula: Formula | None = None,
+        formula: ModelFormula | None = None,
         *,
         X_names: list[str] | None = None,
         y_name: str | None = None,
@@ -375,7 +376,7 @@ class GLM:
         self,
         X: DesignMatrix | DesignFrame,
         y: ResponseVector | None,
-        formula: Formula | None,
+        formula: ModelFormula | None,
         X_names: list[str] | None,
         y_name: str | None,
     ) -> tuple[DesignMatrix, ResponseVector]:
