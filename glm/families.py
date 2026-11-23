@@ -120,6 +120,17 @@ class ExponentialFamily(ABC):
 
         This *is* a special case of joint test with a single constraint, but we
         choose to keep it seperate since it is common and conventional.
+
+        Parameters
+        ----------
+        residual_df: float
+            The residual degrees of freedom. Used in the case where dispersion
+            is estimated, becomes the parameter of the null t distribution.
+
+        Returns
+        -------
+        distribution: TestDistribution
+            Assumed distribution of test staistic under the null hypothesis.
         """
         if self.has_dispersion:
             return TestDistribution("t", "t", sts.t(df=residual_df))
@@ -135,6 +146,19 @@ class ExponentialFamily(ABC):
         - p. A family with no dispersion uses the χ² distribution with q degrees
         of freedom,
 
+        Parameters
+        ----------
+        q: int
+            Count of linearly independent constraints.
+
+        residual_df: float
+            The residual degrees of freedom. Used in the case where dispersion
+            is estimated, becomes the dof parameter for the denominator of F.
+        
+        Returns
+        -------
+        distribution: TestDistribution
+            Assumed distribution of test staistic under the null hypothesis.
         """
         if self.has_dispersion:
             return TestDistribution("W/q", "F", sts.f(dfn=q, dfd=residual_dof))
@@ -142,33 +166,27 @@ class ExponentialFamily(ABC):
 
     def joint_test_statistic(self, T: float, q: int) -> float:
         """
-        Given the χ² test statistic T and the number q of linearly independent
+        Given the χ² test statistic T (χ²(q) distributed under the null when the
+        dispersion is known), and the number q of linearly independent
         constraints, return the appropriate statistic to pass into the null
         distribution.
+
+        Parameters
+        ----------
+        T: float
+            Test statistic.
+        
+        q: int
+            Count of linearly independent constraints.
+
+        Returns
+        -------
+        statistic: float
+            Test statistic.
         """
         if self.has_dispersion:
             return T/q
         return T
-
-    @abstractmethod
-    def link(self, mu: MeanVector) -> LinearPredictor:
-        pass
-
-    @abstractmethod
-    def inv_link(self, eta: LinearPredictor) -> MeanVector:
-        pass
-
-    @abstractmethod
-    def d_inv_link(self, eta: LinearPredictor, mu: MeanVector) -> InverseLinkDerivative:
-        pass
-
-    @abstractmethod
-    def variance(self, mu: MeanVector) -> VarianceVector:
-        pass
-
-    @abstractmethod
-    def unit_deviance(self, y: ResponseVector, mu: MeanVector) -> UnitDeviances:
-        pass
 
     def deviance(
         self,
@@ -213,6 +231,26 @@ class ExponentialFamily(ABC):
             weights * self.d_inv_link(eta, mu) ** 2 / self.variance(mu)
         )
         return working_weights
+
+    @abstractmethod
+    def link(self, mu: MeanVector) -> LinearPredictor:
+        pass
+
+    @abstractmethod
+    def inv_link(self, eta: LinearPredictor) -> MeanVector:
+        pass
+
+    @abstractmethod
+    def d_inv_link(self, eta: LinearPredictor, mu: MeanVector) -> InverseLinkDerivative:
+        pass
+
+    @abstractmethod
+    def variance(self, mu: MeanVector) -> VarianceVector:
+        pass
+
+    @abstractmethod
+    def unit_deviance(self, y: ResponseVector, mu: MeanVector) -> UnitDeviances:
+        pass
 
     @abstractmethod
     def sample(
@@ -343,7 +381,7 @@ class QuasiPoisson(ExponentialFamily):
         return mu
 
     def unit_deviance(self, y: ResponseVector, mu: MeanVector) -> UnitDeviances:
-        # xlogy takes 0 log(0) as 0, the saturated model's log-likelihood for
+        # xlogy takes 0 log(0) to be 0, the saturated model's log-likelihood for
         # a count of zero.
         unit_deviances: UnitDeviances = 2 * (xlogy(y, y / mu) - (y - mu))
         return unit_deviances

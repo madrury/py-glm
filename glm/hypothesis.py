@@ -97,7 +97,13 @@ class ConstraintEquation:
         return cls.from_arrays(lc.constraint_matrix, lc.constraint_values)
 
     @classmethod
-    def from_null_model_formula(cls, model: GLM, formula: ModelFormula, X: DesignFrame, tol: float = 1e-6) -> Self:
+    def from_null_model_formula(
+        cls, 
+        model: GLM, 
+        formula: ModelFormula, 
+        X: DesignFrame, 
+        tol: float = 1e-6
+    ) -> Self:
         """Construct a ConstraintEquation from a formula specifying a null model
         nested within a full model. 
 
@@ -106,7 +112,10 @@ class ConstraintEquation:
             ConstraintEquation.from_null_model_formula(model, 'y ~ x1', X)
         
         In the example, the null hypothesis being asserted is equivalent to:
-            ConstraintEquation.from_constraint_formula('x2 = 0, x3 = 0', names=model.X_names)
+            ConstraintEquation.from_constraint_formula(
+                'x2 = 0, x3 = 0', 
+                names=model.X_names
+            )
         
         but more sophisticated uses are possible, for example:
             model = GLM(family=Gaussian()).fit(
@@ -130,6 +139,9 @@ class ConstraintEquation:
         this method requires the training frame for the full model. This
         training frame must result in the exact same design matrix for the full
         model, else this method raises.
+
+        We require the model formula to be complete with a left hand and right
+        hand side, so `~ x1` is not allowed.
 
         Parameters
         ----------
@@ -169,7 +181,7 @@ class ConstraintEquation:
             np.linalg.norm(residuals, axis=0) <= 
             tol * np.linalg.norm(X_null, axis=0)
         )
-        # TODO: Is it worth providing am example vector that is not
+        # TODO: Is it worth providing an example vector that is not
         # representable?
         if not is_nested:
             raise ValueError("Full and null models are not nested.")
@@ -311,14 +323,38 @@ class HypothesisTests:
         """A Wald test whose null hypothesis is a linear constraint equation on
         model coefficients Cβ = c.
 
-        Assuming that β̂ ~ Gaussian(β, V), then the wald test statistic:
+        Assuming that β̂ is asymptotically Gaussian(β, V), then the wald test
+        statistic:
 
                 W = (Cβ̂ − c)ᵗ (C V Cᵗ)⁻¹ (Cβ̂ − c)
 
-        is χ²(q) distributed, where q is the count of linearly independent
-        constraints. In case the model estimates a dispersion, the test
-        statistic is W/q, which is assumed F(q, n - p) distributed under the
-        null.        
+        is asymptotically χ²(q) distributed, where q is the count of linearly
+        independent constraints. In case the model estimates a dispersion, the
+        test statistic is W/q, which is asymptotically F(q, n - p) distributed
+        under the null.
+
+        Exactly one of the parameters `hypothesis`, `null`, or `constraint` must
+        be supplied.
+
+        Parameters
+        ----------
+        hypothesis: ConstraintFormula | None
+            Constraint equations. For example `x1 = 0, x2 = 0`.
+
+        null: ModelFormula | None
+            Formula specification of null model nested inside of full model.
+
+        constraint: ConstraintEquation | None
+            Explicit arrays for constraint equation Cβ = c.
+
+        X: DesignFrame | None
+            Training data for full model, needed to construct the constraint
+            equations in the nested case.
+        
+        Returns
+        -------
+        result: WaldTestResult
+            Encapsulates the test result.
         """
         constraint = self._construct_constraints(hypothesis, null, constraint, X)
         return _wald(self.model, constraint)
