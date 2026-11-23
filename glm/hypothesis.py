@@ -1,40 +1,37 @@
 """This module encapsulates verious hypothesis tests associated with generalized
 linear models.
 """
-
+from __future__ import annotations
+from typing import cast, TYPE_CHECKING
 import numpy as np
+import scipy.linalg as linalg
 
 from typing import Self
 from dataclasses import dataclass
 from formulaic.utils.constraints import LinearConstraints
 
+from glm.families import TestDistribution
 from glm.types import (
+    DesignFrame,
     ConstraintMatrix,
     ConstraintValues,
-    NestingMatrix,
+    ConstraintFormula,
+    ModelFormula,
     DesignMatrix,
     CoefficientVector,
-    ReferenceDistribution,
-    ReferenceDistributionName,
-    TestStatisticName,
 )
-from glm.utils import check_constraint_formula
+from glm.utils import check_constraint_formula, hash_array
+from glm.encoding import encode_design, learn_formula
 
-
-@dataclass(frozen=True)
-class TestDistribution:
-    """The reference distribution for a tests of linear hypothesis. Encapsulates
-    the test statistic's name, the reference distrivution's name, and its
-    distribution under the linear hypothesis."""
-
-    statistic: TestStatisticName
-    name: ReferenceDistributionName
-    distribution: ReferenceDistribution
+if TYPE_CHECKING:
+    from glm.glm import GLM
 
 
 @dataclass(frozen=True, eq=False)
 class ConstraintEquation:
-    """Encapuslates a linear constraint equation  Cβ = c."""
+    """Encapuslates a linear constraint equation  Cβ = c, and provide various
+    methods to constuct one.
+    """
 
     C: ConstraintMatrix
     c: ConstraintValues
@@ -43,7 +40,7 @@ class ConstraintEquation:
         C, c = self.C, self.c
         if C.ndim != 2:
             raise ValueError(f"C is not a matrix, its shape is {C.shape}.")
-        if C.ndim != 1:
+        if c.ndim != 1:
             raise ValueError(f"c is not a vector, its shape is {c.shape}.")
         if C.shape[0] != c.shape[0]:
             raise ValueError(
@@ -62,15 +59,126 @@ class ConstraintEquation:
 
     @classmethod
     def from_arrays(cls, C: ConstraintMatrix, c: ConstraintValues | None) -> Self:
-        if not c:
+        """Construct a ConstraintEquation from explicit left and right hand
+        sides.
+        """
+        if c is None:
             c = np.zeros(C.shape[0])
         return cls(C, c)
 
     @classmethod
-    def from_constraint_formula(cls, formula: str, names: list[str]) -> Self:
+    def from_constraint_formula(cls, formula: ConstraintFormula, names: list[str]) -> Self:
+        """Construct a ConstraintEquation from a formula listing explicit
+        constraint equations. 
+
+        Valid examples:
+            ConstraintEquation.from_constraint_formula('x1 = x2, x2 = x3')
+            ConstraintEquation.from_constraint_formula('x1 = 0, x2 = 0')
+            ConstraintEquation.from_constraint_formula('x1, x2')
+            ConstraintEquation.from_constraint_formula('C[x](T.a) = 0')
+            ConstraintEquation.from_constraint_formula('cs(x, df=3)[1] = 0')
+        
+        Invalid Examples:
+            ConstraintEquation.from_constraint_formula('x1 = x2 = x3')
+            ConstraintEquation.from_constraint_formula('x1 = x2 = 0')
+        
+        Parameters
+        ----------
+        formula: ConstraintFormula
+            Formula listing the linear constraints.
+        
+        names: list[str]
+            Full list of feature names for model, in order the model expects
+            them. All terms that may appear in the constraint formulas.
+        """
         check_constraint_formula(formula)
         lc = LinearConstraints.from_spec(formula, variable_names=names)
         return cls(lc.constraint_matrix, lc.constraint_values)
+
+    @classmethod
+    def from_null_model_formula(cls, model: GLM, formula: ModelFormula, X: DesignFrame, tol: float = 1e-6) -> Self:
+        """Construct a ConstraintEquation from a formula specifying a null model
+        nested within a full model. 
+
+        For example:
+            model = GLM(family=Gaussian()).fit(X, formula='y ~ x1 + x2 + x3)
+            LinearConstraints.from_null_model_formula(model, 'y ~ x1', X)
+        
+        In the example, the null hypothesis being asserted is equivelent to:
+            ConstraintEquation.from_constraint_formula('x1 = 0, x2 = 0')
+        
+        but more sophisticated uses are possible, for example:
+            model = GLM(family=Gaussian()).fit(
+                X, formula='y ~ cs(x, df=3, constraints="center")'
+            )
+            LinearConstraints.from_null_model_formula(model, 'y ~ x', X)
+        
+        asserts the null that the effect of x on y is linear. This still works
+        because the models are *nested*: there is a linear mapping A from the
+        parameter space of the null model into to the parameter space of the
+        full model that preserves model predictions. For example: linear
+        functions are within the span of cubic spline basis functions, there is
+        a choice of spline parameters that give every possible linear function.
+        
+        This method constructs the constraint matrix C by first constructing the
+        mapping A by least squares, c is always zero. The constraint equations
+        then span the null space of A.
+
+        It is important to note that constructing C from the null model
+        specification requires learning the design matrix of the null model, so
+        this method requires the training frame for the full model. This
+        training frame must result in the exact same design matrix for the full
+        model, else this method raises.
+
+        Parameters
+        ----------
+        model: GLM
+            The full model, within which the null model is nested.
+
+        formula: ModelFormula
+            Formula specification for the null model.
+        
+        X: DesignFrame
+            The design frame used to train the full model. This will raise if
+            the exact same training data is not recovered, checked with a hash.
+        """
+        if model.X_spec is None:
+            raise ValueError(
+                f"The full model is required to be fit using a model formula."
+            )
+        X_full = encode_design(model.X_spec, X)
+        if (
+            model.fit_inputs_ is not None 
+            and hash_array(X_full) != model.fit_inputs_.X_hash
+        ):
+            raise ValueError(
+                "Design matrix for full model differs from the training design."
+                " The X passed in here should be *exactly* that on which the"
+                " model was trained.\n"
+                f"Training hash: {model.fit_inputs_.X_hash}\n"
+                f"X hash: {hash_array(X_full)}"
+            )
+        X_null = cast(
+            DesignMatrix, 
+            np.asarray(learn_formula(formula, X, penalized=False).rhs)
+        )
+        A, _, rank, s = np.linalg.lstsq(X_full, X_null)
+        residuals = X_full @ A - X_null
+        is_nested = all(
+            np.linalg.norm(residuals, axis=0) <= 
+            tol * np.linalg.norm(X_null, axis=0)
+        )
+        # TODO: Is it worth providing am example vector that is not
+        # representable?
+        if not is_nested:
+            raise ValueError("Full and null models are not nested.")
+        if np.linalg.matrix_rank(A) == rank:
+            raise ValueError(
+                "The null model and the full model are equivelent, so the null"
+                " hypothesis is vacuously true."
+            )
+        C = linalg.null_space(A.T).T
+        return cls(C, np.zeros(C.shape[0]))
 
     def meets(self, β: CoefficientVector) -> bool:
         return np.allclose(self.C @ β, self.c)
@@ -112,3 +220,78 @@ class WaldTestResult:
     def summary(self) -> None:
         # TODO: Make this nice.
         print(f"Wald Test.")
+
+
+def _wald(model: GLM, constraint: ConstraintEquation) -> WaldTestResult:
+    if (
+        model.coef_ is None 
+        or model.information_matrix_ is None
+        or model.n is None
+        or model.p is None
+    ):
+        raise ValueError("Model is not fit.")
+    if model.alpha > 0:
+        raise ValueError("Penalized models do not support hypothesis testing.")
+    C, c = constraint.C, constraint.c
+    q, rdof = C.shape[0], model.n - model.p
+    r = C @ model.coef_ - c
+    W = float(
+        r.T @ np.linalg.solve(C @ model.coef_covariance_matrix_ @ C.T, r)
+    )
+    statistic = model.family.joint_test_statistic(W, q)
+    null = model.family.joint_test(q, rdof)
+    p_value = float(null.distribution.sf(statistic))
+    return WaldTestResult(constraint, null, statistic, q, rdof, p_value)
+
+
+class HypothesisTests:
+
+    def __init__(self, model: GLM):
+        self.model = model
+
+    def wald(
+        self, 
+        hypothesis: ConstraintFormula | None = None, 
+        *, 
+        null: ModelFormula | None = None,
+        constraint: ConstraintEquation | None = None,
+        X: DesignFrame | None = None
+    ) -> WaldTestResult:
+        """
+            In the χ² case the test statistic is:
+
+                W = (Cβ̂ − c)ᵗ (C V Cᵗ)⁻¹ (Cβ̂ − c)
+
+            where V is the estimated infromation matrix. In the F case, the test
+            statistic is W/q.
+        """
+        which_args = [
+            hypothesis is not None,
+            null is not None,
+            constraint is not None
+        ]
+        if sum(which_args) != 1:
+            raise ValueError(
+               "Exactly one of hypothesis, null, or constraint must be supplied."
+            )
+        if hypothesis is not None:
+            assert self.model.X_names is not None
+            constraint = ConstraintEquation.from_constraint_formula(
+                hypothesis, 
+                names=self.model.X_names
+            )
+        if null is not None:
+            if X is None:
+                raise ValueError(
+                    "Wald test of nested models requires X to construct the"
+                    " constraint equations."
+                )
+            constraint = ConstraintEquation.from_null_model_formula(
+                model=self.model,
+                formula=null,
+                X=X
+            )
+        assert constraint is not None
+        return _wald(self.model, constraint)
+
+        

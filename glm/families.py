@@ -20,8 +20,23 @@ from glm.types import (
     WorkingWeights,
     UnitDeviances,
     VarianceVector,
+    ReferenceDistribution,
+    ReferenceDistributionName,
+    TestStatisticName,
 )
-from glm.hypothesis import TestDistribution
+
+@dataclass(frozen=True)
+class TestDistribution:
+    """The reference distribution for a test of linear hypothesis. Encapsulates
+    the test statistic's name, the reference distrivution's name, and its
+    distribution under the linear hypothesis.
+    
+    This is placed here, instead of hypotehsis.py, to avoid circular importing.
+    """
+
+    statistic: TestStatisticName
+    name: ReferenceDistributionName
+    distribution: ReferenceDistribution
 
 
 class ExponentialFamily(ABC):
@@ -114,22 +129,26 @@ class ExponentialFamily(ABC):
         """The reference distribution of a test of a linear hypothesis, i.e. a
         null hypothesis of the shape Cβ = c.
 
-
         A family with an estimated dispersion uses the F distribution
         distribution with the numerator degrees of freedom q (the number of
         linearly independent constraints), and denominator degrees of freedom n
-        - p. A family with no dispersion uses the χ² distribution with q degrees of freedom
+        - p. A family with no dispersion uses the χ² distribution with q degrees
+        of freedom,
 
-        In the χ² case the test statistic is:
-
-            W = (Cβ̂ − c)ᵗ (C V Cᵗ)⁻¹ (Cβ̂ − c)
-
-        where V is the estimated infromation matrix. In the F case, the test
-        statistic is W/q.
         """
         if self.has_dispersion:
             return TestDistribution("W/q", "F", sts.f(dfn=q, dfd=residual_dof))
         return TestDistribution("W", "χ²", sts.chi2(df=q))
+
+    def joint_test_statistic(self, T: float, q: int) -> float:
+        """
+        Given the χ² test statistic T and the number q of linearly independent
+        constraints, return the appropriate statistic to pass into the null
+        distribution.
+        """
+        if self.has_dispersion:
+            return T/q
+        return T
 
     @abstractmethod
     def link(self, mu: MeanVector) -> LinearPredictor:

@@ -1,6 +1,7 @@
 from typing import Any, get_args
 from collections.abc import Sequence
 from itertools import pairwise
+import hashlib
 
 import numpy as np
 import numpy.typing as npt
@@ -155,6 +156,14 @@ def check_constraint_formula(formula: ConstraintFormula) -> None:
             " This is common with abbreviations like 'x = y = z',"
             " write these as two equations like 'x = y, y = z'."
         )
+
+
+def hash_array(a: npt.NDArray[np.float64]) -> str:
+    h = hashlib.blake2b(digest_size=16)
+    h.update(str(a.shape).encode())
+    h.update(str(a.dtype).encode())
+    h.update(np.ascontiguousarray(a))
+    return h.hexdigest()
 
 
 def default_X_names(X: DesignMatrix) -> list[str]:

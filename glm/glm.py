@@ -1,4 +1,5 @@
 import warnings
+import hashlib
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Self
@@ -7,9 +8,9 @@ import numpy as np
 import pandas as pd
 
 from glm.encoding import encode_design, encode_response, learn_formula
-from glm.families import ExponentialFamily
-from glm.hypothesis import TestDistribution
+from glm.families import ExponentialFamily, TestDistribution
 from glm.standardize import Standardizer, check_standardizer
+from glm.hypothesis import HypothesisTests
 from glm.types import (
     CoefficientMask,
     CoefficientSummary,
@@ -45,9 +46,10 @@ from glm.utils import (
     check_offset,
     check_standardization,
     check_weights,
-    has_intercept_column,
     default_X_names,
     default_y_name,
+    has_intercept_column,
+    hash_array,
 )
 
 NON_FINITE_ESTIMATES_MESSAGE = (
@@ -71,15 +73,22 @@ class FitInputs:
     out an offset or weights used during fitting with would silently change the
     model being bootstrapped.
 
-    The has_binary_response flag records whether every response was 0 or 1,
-    which decides whether precision weights are needed to simulate a Bernoulli
-    model's responses in a parametric bootstrap.
+    The has_binary_response flag records whether every response was 0 or 1. Then
+    is used during bootstrap sampling: it determines whether precision weights
+    are needed to simulate a Bernoulli model's responses in a parametric
+    bootstrap.
+
+    The X_hash attribute contains a 16 byte hash of the training array. This is
+    used downstream when the same training array is needed again, such as when
+    computing the contranint equation describing a hypothesis test on nested
+    models.
     """
 
     has_offset: bool
     has_frequency_weights: bool
     has_precision_weights: bool
     has_binary_response: bool
+    X_hash: str
 
     def check(
         self,
@@ -117,6 +126,10 @@ class FitInputs:
                 + "; ".join(mismatches)
                 + "."
             )
+
+    def check_design(self, X: DesignMatrix) -> bool:
+        # TODO
+        return True
 
 
 class GLM:
@@ -187,6 +200,9 @@ class GLM:
         passed to fit as a DataFrame. For model formulas, please see the
         formulaic library documentation.
 
+    tests: HypothesisTests
+        Namespace encapsulating various tests on the fit coefficients.
+
     X_spec: formulaic.ModelSpec
         The learned mapping from a data frame to the design matrix, including
         categorical levels and stateful transforms fit on the training data.
@@ -256,6 +272,9 @@ class GLM:
         self.p: int | None = None
         self.information_matrix_: InformationMatrix | None = None
         self.fit_inputs_: FitInputs | None = None
+        # Used to check if the same training design in recovered later on. 
+        self._X_hash: int | None = None
+        self._y_hash: int | None = None
 
     def fit(
         self,
@@ -360,6 +379,8 @@ class GLM:
         their product.
         """
         design_matrix, response = self._prepare_data(X, y, formula, X_names, y_name)
+        self._X_hash = hash(design_matrix.tobytes())
+        self._y_hash = hash(response.tobytes())
         return self._fit(
             design_matrix,
             response,
@@ -453,6 +474,7 @@ class GLM:
             has_frequency_weights=frequency_weights is not None,
             has_precision_weights=precision_weights is not None,
             has_binary_response=bool(np.all((y == 0) | (y == 1))),
+            X_hash=hash_array(X),
         )
         if validate_intercept:
             check_intercept(X)
@@ -711,6 +733,10 @@ class GLM:
                 f"got a {type(y)}"
             )
         return y
+
+    @property
+    def tests(self) -> HypothesisTests:
+        return HypothesisTests(self)
 
     @property
     def dispersion_(self) -> float:
