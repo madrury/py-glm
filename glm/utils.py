@@ -159,6 +159,10 @@ def check_constraint_formula(formula: ConstraintFormula) -> None:
 
 
 def hash_array(a: npt.NDArray[np.float64]) -> str:
+    """Calculate a repeatable hash signature of a numpy array. Used to ensure
+    that a training design matrix is supplied again in downstream tasks where
+    the exact same array is needed.
+    """
     h = hashlib.blake2b(digest_size=16)
     h.update(str(a.shape).encode())
     h.update(str(a.dtype).encode())

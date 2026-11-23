@@ -28,10 +28,10 @@ from glm.types import (
 @dataclass(frozen=True)
 class TestDistribution:
     """The reference distribution for a test of linear hypothesis. Encapsulates
-    the test statistic's name, the reference distrivution's name, and its
+    the test statistic's name, the reference distribution's name, and its
     distribution under the linear hypothesis.
     
-    This is placed here, instead of hypotehsis.py, to avoid circular importing.
+    This is placed here, instead of hypothesis.py, to avoid circular importing.
     """
 
     statistic: TestStatisticName

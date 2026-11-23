@@ -1,5 +1,4 @@
 import warnings
-import hashlib
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Self
@@ -126,10 +125,6 @@ class FitInputs:
                 + "; ".join(mismatches)
                 + "."
             )
-
-    def check_design(self, X: DesignMatrix) -> bool:
-        # TODO
-        return True
 
 
 class GLM:
@@ -272,9 +267,6 @@ class GLM:
         self.p: int | None = None
         self.information_matrix_: InformationMatrix | None = None
         self.fit_inputs_: FitInputs | None = None
-        # Used to check if the same training design in recovered later on. 
-        self._X_hash: int | None = None
-        self._y_hash: int | None = None
 
     def fit(
         self,
@@ -736,6 +728,9 @@ class GLM:
 
     @property
     def tests(self) -> HypothesisTests:
+        """Returns a HypothesisTests object encapsulating various tests of
+        linear constraint null hypotheses.
+        """
         return HypothesisTests(self)
 
     @property
