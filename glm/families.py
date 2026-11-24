@@ -161,7 +161,7 @@ class ExponentialFamily(ABC):
         """
         if self.has_dispersion:
             return TestDistribution(
-                "W/q", f"F({q}, {residual_dof})", sts.f(dfn=q, dfd=residual_dof)
+                "W/q", f"F({q}, {residual_dof:g})", sts.f(dfn=q, dfd=residual_dof)
             )
         return TestDistribution("W", f"χ²({q})", sts.chi2(df=q))
 

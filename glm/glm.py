@@ -281,7 +281,7 @@ class GLM:
         frequency_weights: FrequencyWeights | None = None,
         precision_weights: PrecisionWeights | None = None,
         max_iter: int = 100,
-        tol: float = 0.1**5,
+        tol: float = 1e-8,
         validate_intercept: bool = True,
     ) -> Self:
         """Fit the GLM model to training data.
@@ -337,7 +337,8 @@ class GLM:
             The convergence tolerance for the fitting algorithm. Fitting stops
             when the decrease in the penalized deviance that the next step
             predicts, relative to the penalized deviance, is within this
-            tolerance (see has_converged).
+            tolerance (see has_converged). The default, 1e-8, matches the
+            relative tolerance of R's glm.control and of statsmodels.
 
         validate_intercept: bool
             Should we defensively check that column 0 of the design matrix,

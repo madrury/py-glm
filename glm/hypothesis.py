@@ -106,7 +106,13 @@ class ConstraintEquation:
             formulas.
         """
         check_constraint_formula(formula)
-        lc = LinearConstraints.from_spec(formula, variable_names=names)
+        try:
+            lc = LinearConstraints.from_spec(formula, variable_names=names)
+        except KeyError as e:
+            raise ValueError(
+                f"Constraint formula {formula!r} names {e.args[0]!r}, which is"
+                f" not a coefficient of the model. The coefficients are {names}."
+            ) from e
         return cls(lc.constraint_matrix, lc.constraint_values, formula)
 
     @classmethod
@@ -250,7 +256,7 @@ class WaldTestResult:
     def __repr__(self) -> str:
         return (
             f"WaldTestResult({self.reference.name},"
-            f" {self.reference.statistic}={self.statistic:#.3g},"
+            f" {self.reference.statistic}={self.statistic:.3g},"
             f" p_value={self.p_value:#.3g})"
         )
 
@@ -259,7 +265,7 @@ class WaldTestResult:
             "Wald Test\n"
             f"  Null Hypothesis: {self.constraint.description}\n"
             f"  Constraints:     q = {self.q}\n"
-            f"  Statistic:       {self.reference.statistic} = {self.statistic:#.3g}\n"
+            f"  Statistic:       {self.reference.statistic} = {self.statistic:.3g}\n"
             f"  Reference:       {self.reference.name}\n"
             f"  p-value:         {self.p_value:#.3g}\n"
         )
@@ -278,6 +284,11 @@ def _wald(model: GLM, constraint: ConstraintEquation) -> WaldTestResult:
     if model.alpha > 0:
         raise ValueError("Penalized models do not support hypothesis testing.")
     C, c = constraint.C, constraint.c
+    if C.shape[1] != model.coef_.shape[0]:
+        raise ValueError(
+            f"The constraint matrix C has {C.shape[1]} columns, but the model"
+            f" has {model.coef_.shape[0]} coefficients."
+        )
     q, rdof = C.shape[0], model.n - model.p
     r = C @ model.coef_ - c
     W = float(

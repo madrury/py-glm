@@ -140,7 +140,7 @@ class RidgePath:
         alphas: Sequence[float] | None = None,
         n_alphas: int = 100,
         max_iter: int = 100,
-        tol: float = 0.1**5,
+        tol: float = 1e-8,
         validate_intercept: bool = True,
     ) -> Self:
         """Fit a model for each penalty strength.
@@ -403,7 +403,7 @@ class RidgePathCV:
         alphas: Sequence[float] | None = None,
         n_alphas: int = 100,
         max_iter: int = 100,
-        tol: float = 0.1**5,
+        tol: float = 1e-8,
         validate_intercept: bool = True,
         rng: np.random.Generator | None = None,
     ) -> Self:
