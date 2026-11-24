@@ -36,6 +36,7 @@ class ConstraintEquation:
 
     C: ConstraintMatrix
     c: ConstraintValues
+    description: str
 
     def __post_init__(self) -> None:
         C, c = self.C, self.c
@@ -58,14 +59,25 @@ class ConstraintEquation:
                 " A constraint may be repeated."
             )
 
+    def __repr__(self) -> str:
+        return f"ConstraintEquation({self.description})"
+
     @classmethod
     def from_arrays(cls, C: ConstraintMatrix, c: ConstraintValues | None) -> Self:
         """Construct a ConstraintEquation from explicit left and right hand
         sides.
+
+        Parameters
+        ----------
+        C: ConstraintMatrix
+            Left hand side, matrix of shape (q, p).
+        
+        c: ConstraintValues
+            Right hand side, vector of shape (q,). Defaults to zero.
         """
         if c is None:
             c = np.zeros(C.shape[0])
-        return cls(C, c)
+        return cls(C, c, f"Cβ = c, C of shape {C.shape}")
 
     @classmethod
     def from_constraint_formula(cls, formula: ConstraintFormula, names: list[str]) -> Self:
@@ -89,12 +101,13 @@ class ConstraintEquation:
             Formula listing the linear constraints.
         
         names: list[str]
-            Full list of feature names for model, in order the model expects
-            them. All terms that may appear in the constraint formulas.
+            Full list of design column names for model, in order the model
+            expects them. Enumerates all terms that may appear in the constraint
+            formulas.
         """
         check_constraint_formula(formula)
         lc = LinearConstraints.from_spec(formula, variable_names=names)
-        return cls.from_arrays(lc.constraint_matrix, lc.constraint_values)
+        return cls(lc.constraint_matrix, lc.constraint_values, formula)
 
     @classmethod
     def from_null_model_formula(
@@ -154,6 +167,10 @@ class ConstraintEquation:
         X: DesignFrame
             The design frame used to train the full model. This will raise if
             the exact same training data is not recovered, checked with a hash.
+        
+        tol: float
+            Tolerance for the relative residuals used when testing if the
+            designs are nested.
         """
         if model.X_spec is None:
             raise ValueError(
@@ -175,7 +192,7 @@ class ConstraintEquation:
             DesignMatrix, 
             np.asarray(learn_formula(formula, X, penalized=False).rhs)
         )
-        A, _, rank, s = np.linalg.lstsq(X_full, X_null)
+        A, _, rank, _ = np.linalg.lstsq(X_full, X_null)
         residuals = X_full @ A - X_null
         is_nested = all(
             np.linalg.norm(residuals, axis=0) <= 
@@ -191,7 +208,7 @@ class ConstraintEquation:
                 " hypothesis is vacuously true."
             )
         C = linalg.null_space(A.T).T
-        return cls.from_arrays(C, np.zeros(C.shape[0]))
+        return cls(C, np.zeros(C.shape[0]), formula)
 
     def meets(self, β: CoefficientVector) -> bool:
         return np.allclose(self.C @ β, self.c)
@@ -230,9 +247,23 @@ class WaldTestResult:
     rdof: float
     p_value: float
 
+    def __repr__(self) -> str:
+        return (
+            f"WaldTestResult({self.reference.name},"
+            f" {self.reference.statistic}={self.statistic:#.3g},"
+            f" p_value={self.p_value:#.3g})"
+        )
+
     def summary(self) -> None:
-        # TODO: Make this nice.
-        print(f"Wald Test.")
+        message = (
+            "Wald Test\n"
+            f"  Null Hypothesis: {self.constraint.description}\n"
+            f"  Constraints:     q = {self.q}\n"
+            f"  Statistic:       {self.reference.statistic} = {self.statistic:#.3g}\n"
+            f"  Reference:       {self.reference.name}\n"
+            f"  p-value:         {self.p_value:#.3g}\n"
+        )
+        print(message)
 
 
 def _wald(model: GLM, constraint: ConstraintEquation) -> WaldTestResult:
@@ -356,6 +387,8 @@ class HypothesisTests:
         result: WaldTestResult
             Encapsulates the test result.
         """
+        if not self.model.is_fit():
+            raise ValueError("Hypothesis tests require a fit model.")
         constraint = self._construct_constraints(hypothesis, null, constraint, X)
         return _wald(self.model, constraint)
 
@@ -375,10 +408,16 @@ class HypothesisTests:
             raise ValueError(
                "Exactly one of hypothesis, null, or constraint must be supplied."
             )
+        if constraint is not None:
+            if X is not None:
+                warnings.warn(
+                    "The data X is not needed when `constraint` is supplied, so is"
+                    " being ignored."
+                )
         if hypothesis is not None:
             if X is not None:
                 warnings.warn(
-                    "The data X is not needed when hypothesis is supplied, so is"
+                    "The data X is not needed when `hypothesis` is supplied, so is"
                     " being ignored."
                 )
             assert self.model.X_names is not None
@@ -397,11 +436,5 @@ class HypothesisTests:
                 formula=null,
                 X=X
             )
-        if constraint is not None:
-            if X is not None:
-                warnings.warn(
-                    "The data X is not needed when constraint is supplied, so is"
-                    " being ignored."
-                )
         assert constraint is not None
         return constraint

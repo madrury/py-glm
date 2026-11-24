@@ -178,7 +178,7 @@ type ReferenceDistribution = "rv_continuous_frozen"
 """The distribution of a coefficient's test statistic under the hypothesis
 that the coefficient is zero: a frozen scipy.stats distribution."""
 
-type ReferenceDistributionName = Literal["gaussian", "t", "χ²", "F"]
+type ReferenceDistributionName = str
 """The string name of the statistic distriubtion of a hypothesis test."""
 
 type TestStatisticName = Literal["z", "t", "W", "W/q"]

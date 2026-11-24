@@ -672,7 +672,7 @@ class GLM:
         design_matrix: array, shape (n_samples, n_coefficients)
             The design matrix.
         """
-        if not self._is_fit():
+        if not self.is_fit():
             raise ValueError("Model is not fit, and cannot encode data.")
         if self.X_spec is not None:
             if not isinstance(X, pd.DataFrame):
@@ -706,7 +706,7 @@ class GLM:
         response: array, shape (n_samples, )
             The response vector.
         """
-        if not self._is_fit():
+        if not self.is_fit():
             raise ValueError("Model is not fit, and cannot encode data.")
         if self.X_spec is not None:
             if y is not None:
@@ -856,7 +856,7 @@ class GLM:
     def clone(self) -> Self:
         return self.__class__(self.family, self.alpha, self.standardize)
 
-    def _is_fit(self) -> bool:
+    def is_fit(self) -> bool:
         return self.coef_ is not None
 
     def _cold_start(

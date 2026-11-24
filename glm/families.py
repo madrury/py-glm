@@ -140,11 +140,10 @@ class ExponentialFamily(ABC):
         """The reference distribution of a test of a linear hypothesis, i.e. a
         null hypothesis of the shape Cβ = c.
 
-        A family with an estimated dispersion uses the F distribution
-        distribution with the numerator degrees of freedom q (the number of
-        linearly independent constraints), and denominator degrees of freedom n
-        - p. A family with no dispersion uses the χ² distribution with q degrees
-        of freedom,
+        A family with an estimated dispersion uses the F distribution with the
+        numerator degrees of freedom q (the count of linearly independent
+        constraints), and denominator degrees of freedom n - p. A family with no
+        dispersion uses the χ² distribution with q degrees of freedom.
 
         Parameters
         ----------
@@ -161,13 +160,15 @@ class ExponentialFamily(ABC):
             Assumed distribution of test staistic under the null hypothesis.
         """
         if self.has_dispersion:
-            return TestDistribution("W/q", "F", sts.f(dfn=q, dfd=residual_dof))
-        return TestDistribution("W", "χ²", sts.chi2(df=q))
+            return TestDistribution(
+                "W/q", f"F({q}, {residual_dof})", sts.f(dfn=q, dfd=residual_dof)
+            )
+        return TestDistribution("W", f"χ²({q})", sts.chi2(df=q))
 
     def joint_test_statistic(self, T: float, q: int) -> float:
         """
         Given the χ² test statistic T (χ²(q) distributed under the null when the
-        dispersion is known), and the number q of linearly independent
+        dispersion is known), and the count q of linearly independent
         constraints, return the appropriate statistic to pass into the null
         distribution.
 
