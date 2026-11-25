@@ -25,11 +25,17 @@ import formulaic
 from formulaic.errors import DataMismatchWarning
 import numpy as np
 
-from glm.types import DesignFrame, DesignMatrix, DesignSpec, Formula, ResponseVector
+from glm.types import (
+    DesignFrame,
+    DesignMatrix,
+    DesignSpec,
+    ModelFormula,
+    ResponseVector,
+)
 
 
 def learn_formula(
-    formula: Formula, X: DesignFrame, *, penalized: bool
+    formula: ModelFormula, X: DesignFrame, *, penalized: bool
 ) -> formulaic.ModelMatrices:
     """Learn a formula's specs from training data, and encode that data.
 

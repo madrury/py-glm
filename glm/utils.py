@@ -1,10 +1,20 @@
-from collections.abc import Sequence
 from typing import Any, get_args
+from collections.abc import Sequence
+from itertools import pairwise
+import hashlib
 
 import numpy as np
 import numpy.typing as npt
+from formulaic.parser.algos.tokenize import tokenize
+from formulaic.parser.types import Token
 
-from glm.types import DesignMatrix, Offset, ResponseVector, Standardization
+from glm.types import (
+    DesignMatrix,
+    Offset,
+    ResponseVector,
+    Standardization,
+    ConstraintFormula,
+)
 
 STANDARDIZATIONS: tuple[str, ...] = get_args(Standardization.__value__)
 
@@ -128,6 +138,36 @@ def check_alphas(alphas: Sequence[float] | None, n_alphas: int) -> None:
             raise ValueError("alphas must be a non-empty sequence of positives.")
     else:
         check_integer_at_least("n_alphas", n_alphas, 2)
+
+
+def check_constraint_formula(formula: ConstraintFormula) -> None:
+    tokens = tokenize(formula)
+    ts: list[str] = []
+    for t in tokens:
+        if t.kind is Token.Kind.OPERATOR and t.token in {",", "="}:
+            ts.append(t.token)
+    # Two equals signs in a row with no , in between them.
+    is_bad = any(a == b == "=" for a, b in pairwise(ts))
+    if is_bad:
+        raise ValueError(
+            f"Constraint formula {formula!r} chains = signs within a single"
+            " constraint."
+            " Formulaic creates the incorrect constraint matrix in this case."
+            " This is common with abbreviations like 'x = y = z',"
+            " write these as two equations like 'x = y, y = z'."
+        )
+
+
+def hash_array(a: npt.NDArray[np.float64]) -> str:
+    """Calculate a repeatable hash signature of a numpy array. Used to ensure
+    that a training design matrix is supplied again in downstream tasks where
+    the exact same array is needed.
+    """
+    h = hashlib.blake2b(digest_size=16)
+    h.update(str(a.shape).encode())
+    h.update(str(a.dtype).encode())
+    h.update(np.ascontiguousarray(a))
+    return h.hexdigest()
 
 
 def default_X_names(X: DesignMatrix) -> list[str]:

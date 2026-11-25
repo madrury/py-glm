@@ -19,7 +19,7 @@ from glm.types import (
     CategoricalLevels,
     CoefficientVector,
     DesignMatrix,
-    Formula,
+    ModelFormula,
     MeanVector,
     Offset,
     ResponseVector,
@@ -67,7 +67,7 @@ class SimulatedFrame:
     """
 
     data: pd.DataFrame
-    formula: Formula
+    formula: ModelFormula
     offset: Offset | None
     coef: pd.Series
     mean: MeanVector

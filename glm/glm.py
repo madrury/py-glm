@@ -9,6 +9,7 @@ import pandas as pd
 from glm.encoding import encode_design, encode_response, learn_formula
 from glm.families import ExponentialFamily, TestDistribution
 from glm.standardize import Standardizer, check_standardizer
+from glm.hypothesis import HypothesisTests
 from glm.types import (
     CoefficientMask,
     CoefficientSummary,
@@ -21,7 +22,7 @@ from glm.types import (
     DevianceGradient,
     DevianceHessian,
     DevianceWeights,
-    Formula,
+    ModelFormula,
     FrequencyWeights,
     InformationMatrix,
     InverseLinkDerivative,
@@ -44,9 +45,10 @@ from glm.utils import (
     check_offset,
     check_standardization,
     check_weights,
-    has_intercept_column,
     default_X_names,
     default_y_name,
+    has_intercept_column,
+    hash_array,
 )
 
 NON_FINITE_ESTIMATES_MESSAGE = (
@@ -70,15 +72,22 @@ class FitInputs:
     out an offset or weights used during fitting with would silently change the
     model being bootstrapped.
 
-    The has_binary_response flag records whether every response was 0 or 1,
-    which decides whether precision weights are needed to simulate a Bernoulli
-    model's responses in a parametric bootstrap.
+    The has_binary_response flag records whether every response was 0 or 1. Then
+    is used during bootstrap sampling: it determines whether precision weights
+    are needed to simulate a Bernoulli model's responses in a parametric
+    bootstrap.
+
+    The X_hash attribute contains a 16 byte hash of the training array. This is
+    used downstream when the same training array is needed again, such as when
+    computing the contranint equation describing a hypothesis test on nested
+    models.
     """
 
     has_offset: bool
     has_frequency_weights: bool
     has_precision_weights: bool
     has_binary_response: bool
+    X_hash: str
 
     def check(
         self,
@@ -186,6 +195,9 @@ class GLM:
         passed to fit as a DataFrame. For model formulas, please see the
         formulaic library documentation.
 
+    tests: HypothesisTests
+        Namespace encapsulating various tests on the fit coefficients.
+
     X_spec: formulaic.ModelSpec
         The learned mapping from a data frame to the design matrix, including
         categorical levels and stateful transforms fit on the training data.
@@ -244,7 +256,7 @@ class GLM:
         self.family = family
         self.alpha = alpha
         self.standardize: Standardization = standardize
-        self.formula: Formula | None = None
+        self.formula: ModelFormula | None = None
         self.X_spec: DesignSpec | None = None
         self.y_spec: DesignSpec | None = None
         self.X_names: list[str] | None = None
@@ -260,7 +272,7 @@ class GLM:
         self,
         X: DesignMatrix | DesignFrame,
         y: ResponseVector | None = None,
-        formula: Formula | None = None,
+        formula: ModelFormula | None = None,
         *,
         X_names: list[str] | None = None,
         y_name: str | None = None,
@@ -269,7 +281,7 @@ class GLM:
         frequency_weights: FrequencyWeights | None = None,
         precision_weights: PrecisionWeights | None = None,
         max_iter: int = 100,
-        tol: float = 0.1**5,
+        tol: float = 1e-8,
         validate_intercept: bool = True,
     ) -> Self:
         """Fit the GLM model to training data.
@@ -325,7 +337,8 @@ class GLM:
             The convergence tolerance for the fitting algorithm. Fitting stops
             when the decrease in the penalized deviance that the next step
             predicts, relative to the penalized deviance, is within this
-            tolerance (see has_converged).
+            tolerance (see has_converged). The default, 1e-8, matches the
+            relative tolerance of R's glm.control and of statsmodels.
 
         validate_intercept: bool
             Should we defensively check that column 0 of the design matrix,
@@ -359,6 +372,8 @@ class GLM:
         their product.
         """
         design_matrix, response = self._prepare_data(X, y, formula, X_names, y_name)
+        self._X_hash = hash(design_matrix.tobytes())
+        self._y_hash = hash(response.tobytes())
         return self._fit(
             design_matrix,
             response,
@@ -375,7 +390,7 @@ class GLM:
         self,
         X: DesignMatrix | DesignFrame,
         y: ResponseVector | None,
-        formula: Formula | None,
+        formula: ModelFormula | None,
         X_names: list[str] | None,
         y_name: str | None,
     ) -> tuple[DesignMatrix, ResponseVector]:
@@ -452,6 +467,7 @@ class GLM:
             has_frequency_weights=frequency_weights is not None,
             has_precision_weights=precision_weights is not None,
             has_binary_response=bool(np.all((y == 0) | (y == 1))),
+            X_hash=hash_array(X),
         )
         if validate_intercept:
             check_intercept(X)
@@ -657,7 +673,7 @@ class GLM:
         design_matrix: array, shape (n_samples, n_coefficients)
             The design matrix.
         """
-        if not self._is_fit():
+        if not self.is_fit():
             raise ValueError("Model is not fit, and cannot encode data.")
         if self.X_spec is not None:
             if not isinstance(X, pd.DataFrame):
@@ -691,7 +707,7 @@ class GLM:
         response: array, shape (n_samples, )
             The response vector.
         """
-        if not self._is_fit():
+        if not self.is_fit():
             raise ValueError("Model is not fit, and cannot encode data.")
         if self.X_spec is not None:
             if y is not None:
@@ -710,6 +726,13 @@ class GLM:
                 f"got a {type(y)}"
             )
         return y
+
+    @property
+    def tests(self) -> HypothesisTests:
+        """Returns a HypothesisTests object encapsulating various tests of
+        linear constraint null hypotheses.
+        """
+        return HypothesisTests(self)
 
     @property
     def dispersion_(self) -> float:
@@ -834,7 +857,7 @@ class GLM:
     def clone(self) -> Self:
         return self.__class__(self.family, self.alpha, self.standardize)
 
-    def _is_fit(self) -> bool:
+    def is_fit(self) -> bool:
         return self.coef_ is not None
 
     def _cold_start(

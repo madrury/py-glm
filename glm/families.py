@@ -14,23 +14,28 @@ from glm.types import (
     InverseLinkDerivative,
     LinearPredictor,
     MeanVector,
-    ReferenceDistribution,
     ResponseVector,
     DevianceWeights,
     PrecisionWeights,
     WorkingWeights,
     UnitDeviances,
     VarianceVector,
+    ReferenceDistribution,
+    ReferenceDistributionName,
+    TestStatisticName,
 )
-
 
 @dataclass(frozen=True)
 class TestDistribution:
-    """The reference distribution for a family's coefficient tests: the
-    statistic's name, "t" or "z", and its distribution under the hypothesis
-    that a coefficient is zero."""
+    """The reference distribution for a test of linear hypothesis. Encapsulates
+    the test statistic's name, the reference distribution's name, and its
+    distribution under the linear hypothesis.
+    
+    This is placed here, instead of hypothesis.py, to avoid circular importing.
+    """
 
-    statistic: str
+    statistic: TestStatisticName
+    name: ReferenceDistributionName
     distribution: ReferenceDistribution
 
 
@@ -102,9 +107,9 @@ class ExponentialFamily(ABC):
         return f"{type(self).__name__}()"
 
     def coefficient_test(self, residual_df: float) -> TestDistribution:
-        """The reference distribution of a coefficient's Wald test statistic,
-        estimate / standard error, under the hypothesis that the true
-        coefficient is zero.
+        """The reference distribution of a coefficient's Wald test statistic for
+        a non-zero single coefficient.  The test statistic is estimate /
+        standard error.
 
         A family with an estimated dispersion uses Student's t distribution with
         the residual degrees of freedom, n - p, accounting for the uncertainty
@@ -112,30 +117,77 @@ class ExponentialFamily(ABC):
         others it's the standard approximation. A family with a fixed dispersion
         uses the standard normal: its statistics are asymptotically normal, and
         nothing extra was estimated. This is the convention of R's summary.glm.
+
+        This *is* a special case of joint test with a single constraint, but we
+        choose to keep it seperate since it is common and conventional.
+
+        Parameters
+        ----------
+        residual_df: float
+            The residual degrees of freedom. Used in the case where dispersion
+            is estimated, becomes the parameter of the null t distribution.
+
+        Returns
+        -------
+        distribution: TestDistribution
+            Assumed distribution of test staistic under the null hypothesis.
         """
         if self.has_dispersion:
-            return TestDistribution("t", sts.t(df=residual_df))
-        return TestDistribution("z", sts.norm())
+            return TestDistribution("t", "t", sts.t(df=residual_df))
+        return TestDistribution("z", "gaussian", sts.norm())
 
-    @abstractmethod
-    def link(self, mu: MeanVector) -> LinearPredictor:
-        pass
+    def joint_test(self, q: int, residual_dof: float) -> TestDistribution:
+        """The reference distribution of a test of a linear hypothesis, i.e. a
+        null hypothesis of the shape Cβ = c.
 
-    @abstractmethod
-    def inv_link(self, eta: LinearPredictor) -> MeanVector:
-        pass
+        A family with an estimated dispersion uses the F distribution with the
+        numerator degrees of freedom q (the count of linearly independent
+        constraints), and denominator degrees of freedom n - p. A family with no
+        dispersion uses the χ² distribution with q degrees of freedom.
 
-    @abstractmethod
-    def d_inv_link(self, eta: LinearPredictor, mu: MeanVector) -> InverseLinkDerivative:
-        pass
+        Parameters
+        ----------
+        q: int
+            Count of linearly independent constraints.
 
-    @abstractmethod
-    def variance(self, mu: MeanVector) -> VarianceVector:
-        pass
+        residual_df: float
+            The residual degrees of freedom. Used in the case where dispersion
+            is estimated, becomes the dof parameter for the denominator of F.
+        
+        Returns
+        -------
+        distribution: TestDistribution
+            Assumed distribution of test staistic under the null hypothesis.
+        """
+        if self.has_dispersion:
+            return TestDistribution(
+                "W/q", f"F({q}, {residual_dof:g})", sts.f(dfn=q, dfd=residual_dof)
+            )
+        return TestDistribution("W", f"χ²({q})", sts.chi2(df=q))
 
-    @abstractmethod
-    def unit_deviance(self, y: ResponseVector, mu: MeanVector) -> UnitDeviances:
-        pass
+    def joint_test_statistic(self, T: float, q: int) -> float:
+        """
+        Given the χ² test statistic T (χ²(q) distributed under the null when the
+        dispersion is known), and the count q of linearly independent
+        constraints, return the appropriate statistic to pass into the null
+        distribution.
+
+        Parameters
+        ----------
+        T: float
+            Test statistic.
+        
+        q: int
+            Count of linearly independent constraints.
+
+        Returns
+        -------
+        statistic: float
+            Test statistic.
+        """
+        if self.has_dispersion:
+            return T/q
+        return T
 
     def deviance(
         self,
@@ -180,6 +232,26 @@ class ExponentialFamily(ABC):
             weights * self.d_inv_link(eta, mu) ** 2 / self.variance(mu)
         )
         return working_weights
+
+    @abstractmethod
+    def link(self, mu: MeanVector) -> LinearPredictor:
+        pass
+
+    @abstractmethod
+    def inv_link(self, eta: LinearPredictor) -> MeanVector:
+        pass
+
+    @abstractmethod
+    def d_inv_link(self, eta: LinearPredictor, mu: MeanVector) -> InverseLinkDerivative:
+        pass
+
+    @abstractmethod
+    def variance(self, mu: MeanVector) -> VarianceVector:
+        pass
+
+    @abstractmethod
+    def unit_deviance(self, y: ResponseVector, mu: MeanVector) -> UnitDeviances:
+        pass
 
     @abstractmethod
     def sample(
@@ -310,7 +382,7 @@ class QuasiPoisson(ExponentialFamily):
         return mu
 
     def unit_deviance(self, y: ResponseVector, mu: MeanVector) -> UnitDeviances:
-        # xlogy takes 0 log(0) as 0, the saturated model's log-likelihood for
+        # xlogy takes 0 log(0) to be 0, the saturated model's log-likelihood for
         # a count of zero.
         unit_deviances: UnitDeviances = 2 * (xlogy(y, y / mu) - (y - mu))
         return unit_deviances

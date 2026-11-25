@@ -26,7 +26,7 @@ from glm.types import (
     FoldDeviances,
     FoldFrequencyWeights,
     FoldWeights,
-    Formula,
+    ModelFormula,
     FrequencyWeights,
     InformationEigenvalues,
     Offset,
@@ -130,7 +130,7 @@ class RidgePath:
         self,
         X: DesignMatrix | DesignFrame,
         y: ResponseVector | None = None,
-        formula: Formula | None = None,
+        formula: ModelFormula | None = None,
         *,
         X_names: list[str] | None = None,
         y_name: str | None = None,
@@ -140,7 +140,7 @@ class RidgePath:
         alphas: Sequence[float] | None = None,
         n_alphas: int = 100,
         max_iter: int = 100,
-        tol: float = 0.1**5,
+        tol: float = 1e-8,
         validate_intercept: bool = True,
     ) -> Self:
         """Fit a model for each penalty strength.
@@ -393,7 +393,7 @@ class RidgePathCV:
         self,
         X: DesignMatrix | DesignFrame,
         y: ResponseVector | None = None,
-        formula: Formula | None = None,
+        formula: ModelFormula | None = None,
         *,
         X_names: list[str] | None = None,
         y_name: str | None = None,
@@ -403,7 +403,7 @@ class RidgePathCV:
         alphas: Sequence[float] | None = None,
         n_alphas: int = 100,
         max_iter: int = 100,
-        tol: float = 0.1**5,
+        tol: float = 1e-8,
         validate_intercept: bool = True,
         rng: np.random.Generator | None = None,
     ) -> Self:
@@ -641,7 +641,7 @@ class CVEncodingSpec:
 
 def cv_encoding_spec(
     X: DesignMatrix | DesignFrame,
-    formula: Formula | None,
+    formula: ModelFormula | None,
     response: ResponseVector,
     frequency_weights: FrequencyWeights,
     held_out_frequency_weights: FoldFrequencyWeights,
