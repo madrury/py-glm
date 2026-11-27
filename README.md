@@ -2,8 +2,8 @@
 
 `py-glm` is a library for fitting, inspecting, and simulating from generalized
 linear models in Python. Models are fit with Fisher scoring, and support R-style
-model formulas, offsets, frequency and precision weights, ridge regularization,
-and bootstrap resampling.
+model formulas, offsets, frequency and precision weights, hypothesis tests on
+linear constraints, ridge regularization, and bootstrap resampling.
 
 ## Installation
 
@@ -30,35 +30,50 @@ library in more depth than this README:
 2. [Formulas and Categorical Data](examples/02-formulas.ipynb)
 3. [Inference and Bootstraps](examples/03-inference.ipynb)
 4. [Frequency and Precision Weights](examples/04-weights.ipynb)
-5. [Ridge Regularization](examples/05-regularization.ipynb)
+5. [Ridge Regularization and Cross Validation](examples/05-regularization.ipynb)
 
-They use simulated data from `glm.datasets`, whose `make_regression` and
-`make_frame` simulate a dataset from a GLM, with various options for predictor
-types and dependency structures.
+## Model Specification and Fitting
 
-## Fitting Models
-
-The examples below use this simulated data:
+### Example Data
+The examples below use simulated car insurance data. Each row is a policy,
+observed for some fraction of its yearly period, this is called its *exposure*.
+The response variable is the policy's count of claims in that exposure time:
 
 ```python
 import numpy as np
 import pandas as pd
 
 rng = np.random.default_rng(154)
-N = 1000
+N = 2000
 df = pd.DataFrame({
-    "Moshi": rng.uniform(-1, 1, N),
-    "SwimSwim": rng.uniform(-1, 1, N)
+    "age": rng.uniform(18, 80, N),
+    "vehicle_value": rng.gamma(shape=4.0, scale=5.0, size=N),
+    "region": rng.choice(["north", "south", "west"], size=N),
+    "exposure": rng.uniform(0.1, 1.0, size=N),
 })
-# Logistic style data.
-df["y"] = rng.binomial(
-    1,
-    1 / (1 + np.exp(-(1 - 2 * df["Moshi"] + df["SwimSwim"])))
+# The yearly claim rate is lowest in middle age, rises with the vehicle's
+# value, and varies by region.
+log_rate = (
+    -2.0
+    + 0.0008 * (df["age"] - 45)**2
+    + 0.02 * df["vehicle_value"]
+    + df["region"].map({"north": 0.0, "south": 0.3, "west": -0.2})
 )
-
-X = np.column_stack([np.ones(N), df["Moshi"], df["SwimSwim"]])
-y = df["y"].to_numpy()
+df["claims"] = rng.poisson(df["exposure"] * np.exp(log_rate))
 ```
+
+For now, we manually transform our data table into a design matrix, though later
+we will see this is not needed:
+
+```python
+# For fitting with arrays. The first column is an explicit intercept.
+X = np.column_stack([np.ones(N), df["age"], df["vehicle_value"]])
+y = df["claims"].to_numpy()
+# The log exposures, an offset (see Offsets and Weights, below).
+offset = np.log(df["exposure"].to_numpy())
+```
+
+### Exponential Families
 
 `py-glm` supports models from various exponential families:
 
@@ -73,7 +88,7 @@ exponential_model = GLM(family=Exponential())
 ```
 
 Models with dispersion parameters are also supported. The dispersion parameters
-in these models are estimated using the deviance.
+are estimated using the fit deviance.
 
 ```python
 from glm.families import QuasiPoisson, Gamma
@@ -82,11 +97,11 @@ quasi_poisson_model = GLM(family=QuasiPoisson())
 gamma_model = GLM(family=Gamma())
 ```
 
-Fitting a model given data in `numpy` arrays proceeds in `sklearn` style, and
-uses the Fisher scoring algorithm:
+### Fitting
+Fitting a model given data in `numpy` arrays uses the `sklearn` style:
 
 ```python
-logistic_model.fit(X, y)
+poisson_model.fit(X, y, offset=offset)
 ```
 
 **The intercept:** Instead of a `fit_intercept` argument, `py-glm` expects the
@@ -96,44 +111,82 @@ pass `validate_intercept=False`. Model formulas, below, include an intercept
 automatically.
 
 **Rank-deficient designs:** Unpenalized fits raise an error if the design
-matrix's columns are linearly dependent, as when a predictor is duplicated, or a
-spline basis includes the intercept, since the coefficients then aren't uniquely
-identified. Ridge models do not require linear independence.
+matrix's columns are linearly dependent, since in this case the coefficients
+aren't uniquely identified. Common examples of this happening are when a
+predictor is duplicated, or a spline basis includes the intercept. Ridge models
+do not require linear independence, so rank-deficient designs do not raise for
+regularized regressions.
 
-**Offsets and Weights:**
-Offsets and weights are supported when fitting:
+### Model Formulas
+If your data resides in a `pandas.DataFrame`, you can pass it to `fit` along
+with a model formula:
 
 ```python
-exposure = rng.uniform(1, 10, N)
-# Poisson style data.
-y_count = rng.poisson(exposure * np.exp(0.5 + 0.3 * df["Moshi"]))
-poisson_model.fit(X, y_count, offset=np.log(exposure))
-
-counts = rng.integers(1, 5, N).astype(np.float64)
-weighted_model = GLM(family=Bernoulli()).fit(X, y, frequency_weights=counts)
+FORMULA = "claims ~ cs(age, df=5, constraints='center') + vehicle_value + C(region)"
+formula_model = GLM(family=Poisson())
+formula_model.fit(df, formula=FORMULA, offset=offset)
 ```
 
-**Weights:** There are two kinds of weights, and they mean
-*different things*.
+Model formulas are a small specification language for transforming dataframes
+into design matrices, provided by the
+[formulaic](https://matthewwardrop.github.io/formulaic/) library. Include
+categorical variables with `C(group)`, cubic splines with `cs(x, df=5,
+constraints='center')`, and stateful transforms such as centering with
+`center(x)`. For more sophisticated use, consult the `formulaic` documentation
+(and give the library a well-deserved star).
+
+The model stores what it learned about the formula encoding from the training
+data, such as each categorical variable's levels and the constants used by
+`center`. It is then used to encode any future data, such as in `predict`, when
+testing nested models, and in any bootstraps.
+
+For example, a new dataframe containing only some of a variable's categories is
+still encoded with every category's column (some columns will be all 0.0s in
+this case). On the other hand, new data including an *unseen* category will
+raise (in the case of an unpenalized model); this avoids the silent error of
+assuming the unseen category is equivalent to the reference one.
+
+### Offsets and Weights
+Offsets and weights are supported when fitting.
+
+**Offsets:** An offset is a term added to the linear predictor with a fixed
+coefficient of one. In the examples above, a policy's expected count of claims
+is its exposure times its yearly rate, so with a log link
+
+```
+    log E[claims | X] = log(exposure) + Xβ,
+```
+
+and `offset=np.log(exposure)` ensures that the fit coefficients `coef_` describe
+the yearly claims rate.
+
+**Weights:** There are two kinds of weights, and they mean different things.
 
 * `frequency_weights` say how many identical observations each row stands
-for, as when repeated records are stored once with a count. Using
+for, as when repeated records are compressed into one row with a count. Using
 `frequency_weights` in a fit is exactly equivalent to fitting to the expanded
-data.
-* `precision_weights` say how much more precise each row's response is than a
-single observation's: its variance is divided by the weight. They're the natural
-weights for a response that's an average, or proportion. For example, a binomial
-response may be given as proportions of successes, weighted by their count of
-trials:
+data. For example, the policies in each region with each count of claims,
+stored once with their count, give the same fit as all the policies:
 
 ```python
-trials = rng.integers(5, 20, N).astype(np.float64)
-successes = rng.binomial(
-    trials.astype(int),
-    1 / (1 + np.exp(-(X @ [0.5, -1.0, 0.5])))
+rows = df[["region", "claims"]].value_counts().rename("n").reset_index()
+compressed_model = GLM(family=Poisson()).fit(
+    rows, formula="claims ~ C(region)", frequency_weights=rows["n"].to_numpy()
 )
-proportions_model = GLM(family=Bernoulli()).fit(
-    X, successes / trials, precision_weights=trials
+```
+
+* `precision_weights` say how much more precise each row's response is than a
+single observation's: its variance is divided by the weight. They're the natural
+weights for a response that's an average, rate, or proportion, such as a
+binomial proportion of successes weighted by its count of trials. For example,
+each policy's yearly claim rate, weighted by its exposure, gives exactly the
+same fit as its count of claims with the offset:
+
+```python
+rate_model = GLM(family=Poisson()).fit(
+    df.assign(rate=df["claims"] / df["exposure"]),
+    formula="rate ~ cs(age, df=5, constraints='center') + vehicle_value + C(region)",
+    precision_weights=df["exposure"].to_numpy(),
 )
 ```
 
@@ -143,69 +196,57 @@ a dispersion, the two kinds of weights give different dispersions and standard
 errors. (R's `glm` calls precision weights *prior weights*.) The two kinds can
 be combined.
 
+In particular, we never use *weights* to mean the model coeffiients/parameters,
+in contrast with some machine learning literature.
+
 **Missing values:** `fit`, `predict`, and `score` raise an error if the data
 contain any missing or infinite values (`np.nan`, `np.inf`, `pd.NA`, `None`),
 rather than silently dropping rows, which would misalign the data with any
 offsets, weights, or predictions. Dealing with missing values is thus the
 user's responsibility: drop or impute missing values before fitting models.
 
-## Model Formulas
-
-If your data resides in a `pandas.DataFrame`, you can pass it to `fit` along
-with a model formula:
-
-```python
-formula_model = GLM(family=Bernoulli())
-formula_model.fit(df, formula="y ~ Moshi + SwimSwim")
-```
-
-Formulas use the [formulaic](https://matthewwardrop.github.io/formulaic/)
-syntax. Include categorical variables with `C(group)`, and transforms such as
-`center(x)`. For more sophisticated use, consult the `formulaic` documentation
-(and give the library a well-deserved star).
-
-The model stores what it learned about the formula encoding from the training
-data, such as each categorical variable's levels and the constants used by
-`center`. It is then used to encode any new data, such as in `predict` and in any
-bootstraps.
-
-So, for example, new data containing only some of a variable's categories is
-still encoded with every category's column (some columns will be all 0.0s in
-this case). On the other hand, data including an *unseen* category will raise
-(in the case of an unpenalized model), to avoid the silent error of assuming the
-unseen category is equivalent to the reference one.
 
 ## Prediction
-
-Predictions are also made in `sklearn` style:
+Predictions from an array are also made in `sklearn` style:
 
 ```python
-logistic_model.predict(X)
+# Expected claims over each policy's exposure.
+poisson_model.predict(X, offset=offset)
+```
+
+If fit with a dataframe and formula, only a frame is needed at prediction time
+since the model stores the transformation from dataframe to design array:
+
+```python
+# Expected claims per year, as the offset defaults to zero.
 formula_model.predict(df)
 ```
 
 **Conditional Expectations:**
-There is one major place where we deviate from the `sklearn` convention. The
-`predict` method on a `GLM` object **always** returns an estimate of the
-conditional expectation `E[y | X]`. This is in contrast to `sklearn` behavior
-for classification models, where it returns a class assignment. We make this
-choice so that the `py-glm` library is internally consistent with its use of
-`predict` across all exponential families.
+There is one major place where we deviate from the `sklearn` convention on
+predictions. The `predict` method on a `GLM` object **always** returns an
+estimate of the conditional expectation `E[y | X]`. This is in contrast to
+`sklearn` behavior for classification models, where it returns a class
+assignment. We make this choice so that the `py-glm` library is internally
+consistent with its use of `predict` across all exponential families.
 
 If the user would like to infer class assignments from a classification model,
 they will need to threshold the probability returned by `predict` manually. The
 author considers this best practice anyway.
 
-## Inference
+## Parametric Inference
+We provide inference for fit coefficients, and for null hypotheses specified as
+linear constraints.
 
+### Coefficient Inference
 Once the model is fit, parameter estimates, parameter covariance estimates, and
 Wald test p-values are available:
 
 ```python
-logistic_model.coef_
-logistic_model.coef_covariance_matrix_
-logistic_model.coef_standard_error_
-logistic_model.p_values_
+formula_model.coef_
+formula_model.coef_covariance_matrix_
+formula_model.coef_standard_error_
+formula_model.p_values_
 ```
 
 `summary_frame` collects them into a data frame, one row per coefficient, with
@@ -230,12 +271,83 @@ formula_model.summary()
 ```
 
 ```
-Bernoulli GLM Model Summary.
-          estimate std error       z p-value lower 95% upper 95%
-Intercept    0.985     0.085  11.539  <0.001     0.817     1.152
-Moshi       -2.063     0.160 -12.888  <0.001    -2.377    -1.750
-SwimSwim     0.993     0.139   7.152  <0.001     0.721     1.265
+Poisson GLM Model Summary.
+                                       estimate std error       z p-value lower 95% upper 95%
+Intercept                                -1.653     0.150 -11.058  <0.001    -1.946    -1.360
+cs(age, df=5, constraints='center')[1]    0.097     0.200   0.483   0.629    -0.295     0.489
+cs(age, df=5, constraints='center')[2]   -0.158     0.154  -1.022   0.307    -0.461     0.145
+cs(age, df=5, constraints='center')[3]   -0.182     0.178  -1.026   0.305    -0.530     0.166
+cs(age, df=5, constraints='center')[4]   -0.169     0.175  -0.967   0.334    -0.513     0.174
+cs(age, df=5, constraints='center')[5]    0.665     0.213   3.116   0.002     0.247     1.083
+vehicle_value                             0.015     0.005   2.860   0.004     0.005     0.026
+C(region)[T.south]                        0.279     0.133   2.092   0.036     0.018     0.540
+C(region)[T.west]                        -0.203     0.153  -1.326   0.185    -0.502     0.097
 ```
+
+### Joint Tests, Constraints, and Nested Models
+
+A null hypothesis that is a linear equation in the coefficients, such as several
+coefficients being zero at once, has a Wald test, specified in one of three ways.
+
+**Constraint equations:** For example, that the region has no effect, i.e. that
+both of its coefficients are zero:
+
+```python
+formula_model.tests.wald("C(region)[T.south] = 0, C(region)[T.west] = 0").summary()
+```
+
+```
+Wald Test
+  Null Hypothesis: C(region)[T.south] = 0, C(region)[T.west] = 0
+  Constraints:     q = 2
+  Statistic:       W = 11.5
+  Reference:       χ²(2)
+  p-value:         0.00322
+```
+
+**Nested models:** Another way to consider the same null hypothesis is that the
+model excluding the region variable is correct. A *null* model nested within the
+fit model, the *full* model, can be given as a formula:
+
+```python
+formula_model.tests.wald(
+    null="claims ~ cs(age, df=5, constraints='center') + vehicle_value", X=df
+)
+```
+
+This gives the same test as above.
+
+Notice that here the training data is needed again, it is necessary to work out
+the constraints that the nesting implies. We check that exactly the same data is
+supplied, using a stored hash.
+
+Nested models can express hypotheses that have no simple statement as constraint
+equations. For example, that age has a linear effect, since a straight line is a
+special case of a cubic spline:
+
+```python
+formula_model.tests.wald(
+    null="claims ~ age + vehicle_value + C(region)", X=df
+).summary()
+```
+
+```
+Wald Test
+  Null Hypothesis: claims ~ age + vehicle_value + C(region)
+  Constraints:     q = 4
+  Statistic:       W = 13.7
+  Reference:       χ²(4)
+  p-value:         0.00820
+```
+
+The test rejects, as it should: the simulated claim rate is quadratic in age.
+
+**Constraint arrays:** For anything else, give the equation `Cβ = c` as arrays,
+with `constraint=ConstraintEquation.from_arrays(C, c)`, from `glm.hypothesis`.
+
+With a single constraint, such as `"vehicle_value = 0"`, the test is the same as
+the coefficient's test in `summary_frame`. For families that estimate a
+dispersion, the statistic is referred to an F distribution, rather than χ².
 
 ## Simulation
 
@@ -246,19 +358,21 @@ parametric and non-parametric bootstraps:
 from glm.simulation import Simulation, coefficient_table
 
 sim = Simulation(formula_model)
-simulated_responses = sim.sample(df, n_sim=100)  # Shape (100, N): one response vector per row.
+# Shape (100, N): one response vector per row.
+simulated_responses = sim.sample(df, n_sim=100, offset=offset)
 
-parametric_boots = sim.parametric_bootstrap(df, n_sim=500)
-non_parametric_boots = sim.non_parametric_bootstrap(df, n_sim=500)
+parametric_boots = sim.parametric_bootstrap(df, n_sim=500, offset=offset)
+non_parametric_boots = sim.non_parametric_bootstrap(df, n_sim=500, offset=offset)
 ```
 
-Each bootstrap returns a list of fit models (a `list[GLM]`).
+Each bootstrap returns a list of fit models (a `list[GLM]`). Pass the same
+offset and weights the model was fit with.
 
 For a model fit without a formula, pass the response to the non-parametric
 bootstrap as well:
 
 ```python
-Simulation(logistic_model).non_parametric_bootstrap(X, y, n_sim=500)
+Simulation(poisson_model).non_parametric_bootstrap(X, y, n_sim=500, offset=offset)
 ```
 
 `coefficient_table` collects the bootstrap estimates into a data frame, with one
@@ -273,7 +387,8 @@ table.quantile([0.025, 0.975])  # 95% percentile intervals.
 The parametric bootstrap simulates from the fit model, so its standard errors
 estimate the model-based standard errors. The non-parametric bootstrap
 resamples the data, so its standard errors estimate the robust (sandwich)
-standard errors, which remain valid if the model's variance function is wrong.
+standard errors, which remain valid even if the model's variance function is
+wrong.
 
 **Rare categories:** A non-parametric bootstrap resample may contain no rows
 of a rare category, so that its coefficient cannot be estimated, in which case
@@ -282,14 +397,15 @@ not require linear independence of predictors.
 
 ## Regularization
 
-Ridge regression is supported for each model, by passing a regularization
-strength when constructing the model. (The parameter is called `alpha` instead
-of the literature convention `lambda`, as `lambda` is a reserved word in
-Python.)
+### Ridge Regressions
+Ridge regression is supported for all models, enabled by passing a
+regularization strength when constructing the model. (The parameter is called
+`alpha` instead of the literature convention `lambda`, as `lambda` is a reserved
+word in Python.)
 
 ```python
-ridge_model = GLM(family=Bernoulli(), alpha=1.0)
-ridge_model.fit(X, y)
+ridge_model = GLM(family=Poisson(), alpha=1.0)
+ridge_model.fit(df, formula=FORMULA, offset=offset)
 ```
 
 The ridge penalty is `alpha` times the sum of the (standardized, see below)
@@ -311,28 +427,25 @@ scale. The `standardize` argument controls this behaviour:
 * `"none"` fits the columns as given, no scaling.
 
 ```python
-glmnet_style_model = GLM(family=Bernoulli(), alpha=1.0, standardize="all")
+glmnet_style_model = GLM(family=Poisson(), alpha=1.0, standardize="all")
 ```
 
 **Categorical variables:** Penalized formula models encode categorical
-variables with a column for every level, e.g. `C(g)[a]`, `C(g)[b]`, and
+variables with a column for *every* level, e.g. `C(g)[a]`, `C(g)[b]`, and
 `C(g)[c]`, rather than dropping a reference level. This ensures the penalty
 treats every level alike, and the fit doesn't depend on which level would have
 been the reference.
 
 
-## Ridge Paths
-
-`RidgePath` fits a model at each of a grid of penalty strengths, from the
-largest to the smallest, starting each fit from the previous one's
-coefficients:
+### Ridge Paths
+A `RidgePath` fits a model at each of a grid of penalty strengths, from the
+largest to the smallest, starting each fit from the previous one's coefficients:
 
 ```python
 from glm.ridge import RidgePath
 
-df["Group"] = rng.choice(["a", "b", "c"], N)
-path = RidgePath(family=Bernoulli())
-path.fit(df, formula="y ~ Moshi + SwimSwim + C(Group)")
+path = RidgePath(family=Poisson())
+path.fit(df, formula=FORMULA, offset=offset)
 
 path.alphas_  # 100 penalty strengths, in decreasing order.
 path.models_  # A fit GLM for each.
@@ -344,8 +457,8 @@ Pass `alphas` to `fit` to choose the penalty strengths yourself. By default, the
 grid spans the eigenvalues of the model's (standardized) information matrix:
 ridge shrinks a fit along each eigen-direction by the factor `d / (d + alpha)`,
 for that direction's eigenvalue `d`, so the interesting part of the path happens
-between them (see Hastie, Tibshirani, and Friedman, *The Elements of Statistical
-Learning*, section 3.4.1).
+between the minimum and maximum eigenvalues (see Hastie, Tibshirani, and
+Friedman, *The Elements of Statistical Learning*, section 3.4.1).
 
 `plot_coefficient_paths` plots the path of every coefficient, grouped by model
 term, so that every level of a categorical variable shares a color. Select
@@ -359,7 +472,7 @@ from glm.plotting import plot_coefficient_paths
 
 fig, axes = plt.subplots(1, 2, figsize=(12, 4))
 plot_coefficient_paths(axes[0], path)
-plot_coefficient_paths(axes[1], path, "Moshi + C(Group)", x="df")
+plot_coefficient_paths(axes[1], path, "vehicle_value + C(region)", x="df")
 ```
 
 Like all of `py-glm`'s plotting functions, `plot_coefficient_paths` draws on
@@ -376,8 +489,8 @@ strengths, then scores each model using its deviance on the held-out fold:
 from glm.ridge import RidgePathCV
 from glm.plotting import plot_cv_deviance
 
-cv = RidgePathCV(family=Bernoulli(), n_folds=10)
-cv.fit(df, formula="y ~ Moshi + SwimSwim + C(Group)", rng=np.random.default_rng(1))
+cv = RidgePathCV(family=Poisson(), n_folds=10)
+cv.fit(df, formula=FORMULA, offset=offset, rng=np.random.default_rng(1))
 
 cv.alpha_min_  # The penalty strength with the smallest cross-validated deviance.
 cv.model_min_  # The model fit to all the data at that strength.
@@ -386,10 +499,10 @@ fig, ax = plt.subplots(figsize=(12, 4))
 plot_cv_deviance(ax, cv, x="df")
 ```
 
-With weights, the folds respect what each kind means:
+With weights, the folds respect what each kind of weight means:
   - a frequency-weighted row's implied observations are dealt to the folds
   separately
-  - a precision-weighted row is held out whole.
+  - a precision-weighted row is held out whole to a single fold.
 
 ## Type Annotations
 
