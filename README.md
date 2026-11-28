@@ -349,7 +349,7 @@ With a single constraint, such as `"vehicle_value = 0"`, the test is the same as
 the coefficient's test in `summary_frame`. For families that estimate a
 dispersion, the statistic is referred to an F distribution, rather than χ².
 
-## Simulation
+## Simulation, Non-Parametric Inference
 
 The `simulation` module samples responses from a fit model, and supports the
 parametric and non-parametric bootstraps:
@@ -479,7 +479,7 @@ Like all of `py-glm`'s plotting functions, `plot_coefficient_paths` draws on
 the axes you pass it and returns them, so you stay in control of the figure's
 layout.
 
-## Choosing the Penalty by Cross-Validation
+### Choosing the Penalty by Cross-Validation
 
 `RidgePathCV` chooses the penalty strength by cross-validation. It splits the
 data into folds, fits a path to all but each fold in turn over a grid of penalty
